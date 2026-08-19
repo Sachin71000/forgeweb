@@ -16,6 +16,28 @@ function send(response: ServerResponse, status: number, body: unknown): void {
   response.end(JSON.stringify(body));
 }
 
+function sendPreview(response: ServerResponse, html: string, versionId: string): void {
+  response.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-store",
+    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+    "x-content-type-options": "nosniff",
+    "x-forgeweb-version": versionId,
+  });
+  response.end(html);
+}
+
+function sendArchive(response: ServerResponse, archive: Buffer, filename: string): void {
+  response.writeHead(200, {
+    "content-type": "application/zip",
+    "content-disposition": `attachment; filename="${filename}"`,
+    "content-length": archive.length,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  });
+  response.end(archive);
+}
+
 function streamBuildEvents(request: IncomingMessage, response: ServerResponse, workflow: BuildWorkflow, buildId: string): void {
   workflow.get(buildId);
   response.writeHead(200, {
@@ -92,6 +114,42 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
       if (method === "POST" && buildConfirmationMatch) {
         const build = await workflow.confirm(decodeURIComponent(buildConfirmationMatch[1]));
         send(response, 202, { build });
+        return;
+      }
+      const workspaceMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/workspace$/);
+      if (method === "GET" && workspaceMatch) {
+        send(response, 200, { workspace: workflow.workspace.get(decodeURIComponent(workspaceMatch[1])) });
+        return;
+      }
+      const previewMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/preview$/);
+      if (method === "GET" && previewMatch) {
+        const preview = workflow.workspace.getPreview(decodeURIComponent(previewMatch[1]));
+        sendPreview(response, preview.html, preview.versionId);
+        return;
+      }
+      const editMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/edits$/);
+      if (method === "POST" && editMatch) {
+        const payload = await body(request) as { prompt?: unknown };
+        const result = await workflow.workspace.edit(decodeURIComponent(editMatch[1]), payload.prompt);
+        send(response, 201, result);
+        return;
+      }
+      const restoreMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/versions\/([^/]+)\/restore$/);
+      if (method === "POST" && restoreMatch) {
+        const workspace = await workflow.workspace.restore(decodeURIComponent(restoreMatch[1]), decodeURIComponent(restoreMatch[2]));
+        send(response, 200, { workspace });
+        return;
+      }
+      const exportValidationMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/export\/validate$/);
+      if (method === "POST" && exportValidationMatch) {
+        const summary = await workflow.workspace.validateExport(decodeURIComponent(exportValidationMatch[1]));
+        send(response, summary.validation === "passed" ? 200 : 422, { summary });
+        return;
+      }
+      const exportMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/export$/);
+      if (method === "POST" && exportMatch) {
+        const result = await workflow.workspace.export(decodeURIComponent(exportMatch[1]));
+        sendArchive(response, result.archive, result.filename);
         return;
       }
       const buildMatch = requestUrl.pathname.match(/^\/api\/builds\/([^/]+)$/);

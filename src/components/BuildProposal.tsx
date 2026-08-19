@@ -1,14 +1,16 @@
 import { ArrowRight, Boxes, Check, Code2, Database, ExternalLink, FileCode2, Server, ShieldCheck } from "lucide-react";
 import { motion } from "motion/react";
 import type { BuildResponse } from "../lib/forgeweb-api";
+import ProjectWorkspace from "./ProjectWorkspace";
 
 type BuildProposalProps = {
   build: BuildResponse | null;
   busy: boolean;
   onConfirm: () => void;
+  onProjectUpdated?: () => void;
 };
 
-export default function BuildProposal({ build, busy, onConfirm }: BuildProposalProps) {
+export default function BuildProposal({ build, busy, onConfirm, onProjectUpdated }: BuildProposalProps) {
   const specification = build?.specification;
   if (!build || !specification || build.status === "queued" || build.status === "specifying" || build.status === "planning") return null;
 
@@ -90,7 +92,7 @@ export default function BuildProposal({ build, busy, onConfirm }: BuildProposalP
       {build.filePaths.length > 0 && (
         <div className="generated-artifacts">
           <div className="build-proposal-title"><Code2 /> Generated frontend + backend <span>{build.filePaths.length} files</span></div>
-          <div>{build.filePaths.map((path) => <code key={path}>{path}</code>)}</div>
+          <ProjectWorkspace projectId={build.projectId} initialFilePaths={build.filePaths} validationCount={build.validationChecks.length} onProjectUpdated={onProjectUpdated} />
           {complete && <p><Check /> {build.validationChecks.length} validation checks passed. Requirement graph synchronized.</p>}
         </div>
       )}

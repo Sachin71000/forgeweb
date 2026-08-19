@@ -29,6 +29,7 @@ import { KineticStatement } from "./components/KineticStatement";
 import { LanguageShowcase } from "./components/LanguageShowcase";
 import SiteNav from "./components/SiteNav";
 import BuildProposal from "./components/BuildProposal";
+import ProjectLibrary from "./components/ProjectLibrary";
 import { confirmBuild, createBuild, waitForBuild, type BuildResponse } from "./lib/forgeweb-api";
 
 const floatingLinesGradient = ["#50c7f0", "#000000", "#0ac0e0"];
@@ -85,6 +86,7 @@ function Hero() {
   const [stage, setStage] = useState(-1);
   const [running, setRunning] = useState(false);
   const [build, setBuild] = useState<BuildResponse | null>(null);
+  const [projectRefreshToken, setProjectRefreshToken] = useState(0);
   const [statusDetail, setStatusDetail] = useState("Ready — your prompt becomes a versioned specification before code is generated.");
   const activeStage = buildStages[Math.max(stage, 0)];
   const ActiveStageIcon = activeStage.icon;
@@ -108,6 +110,7 @@ function Hero() {
         throw new Error(completed.error?.message ?? completed.stageDetail);
       }
       setBuild(completed);
+      setProjectRefreshToken((value) => value + 1);
       if (completed.status === "awaiting_confirmation") {
         setStage(1);
         setStatusDetail("Architecture ready — review the requirements and confirm before any source is generated.");
@@ -139,6 +142,7 @@ function Hero() {
         throw new Error(completed.error?.message ?? completed.stageDetail);
       }
       setBuild(completed);
+      setProjectRefreshToken((value) => value + 1);
       setStage(3);
       setStatusDetail(completed.stageDetail);
     } catch (error) {
@@ -146,6 +150,12 @@ function Hero() {
     } finally {
       setRunning(false);
     }
+  };
+
+  const openSavedProject = (savedBuild: BuildResponse) => {
+    setBuild(savedBuild);
+    setStage(visibleBuildStage(savedBuild));
+    setStatusDetail(savedBuild.status === "completed" ? `Saved project opened — ${savedBuild.stageDetail}` : visibleBuildDetail(savedBuild));
   };
 
   return (
@@ -245,7 +255,8 @@ function Hero() {
             <span className="flex items-center gap-1.5"><GitBranch className="size-3.5" /> Git-native history</span>
             <span className="flex items-center gap-1.5"><KeyRound className="size-3.5" /> Managed or BYOK</span>
           </div>
-          <BuildProposal build={build} busy={running} onConfirm={confirmProposal} />
+          <ProjectLibrary activeProjectId={build?.projectId} refreshToken={projectRefreshToken} onOpen={openSavedProject} />
+          <BuildProposal build={build} busy={running} onConfirm={confirmProposal} onProjectUpdated={() => setProjectRefreshToken((value) => value + 1)} />
         </div>
       </div>
       <div className="hero-scroll-cue"><span>SCROLL TO TRACE THE SYSTEM</span><i /></div>

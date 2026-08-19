@@ -64,6 +64,35 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
     }
     assert.equal(status, "completed");
 
+    const workspaceResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/workspace`);
+    assert.equal(workspaceResponse.status, 200);
+    const workspacePayload = await workspaceResponse.json() as { workspace: { currentVersion: { versionNumber: number }; files: unknown[] } };
+    assert.equal(workspacePayload.workspace.currentVersion.versionNumber, 1);
+    assert.equal(workspacePayload.workspace.files.length, 12);
+
+    const previewResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/preview`);
+    assert.equal(previewResponse.status, 200);
+    assert.match(previewResponse.headers.get("content-security-policy") ?? "", /script-src 'none'/);
+    assert.match(await previewResponse.text(), /Team Scheduler/i);
+
+    const editResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/edits`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "Make the navbar smaller and add a glass effect. Keep everything else unchanged." }),
+    });
+    assert.equal(editResponse.status, 201);
+    const editPayload = await editResponse.json() as { modifiedFiles: string[]; workspace: { currentVersion: { versionNumber: number } } };
+    assert.equal(editPayload.workspace.currentVersion.versionNumber, 2);
+    assert.deepEqual(editPayload.modifiedFiles.sort(), ["frontend/preview.html", "frontend/src/styles.css"]);
+
+    const validateExportResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/export/validate`, { method: "POST" });
+    assert.equal(validateExportResponse.status, 200);
+    assert.equal((await validateExportResponse.json() as { summary: { validation: string } }).summary.validation, "passed");
+    const exportResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/export`, { method: "POST" });
+    assert.equal(exportResponse.status, 200);
+    assert.equal(exportResponse.headers.get("content-type"), "application/zip");
+    assert.equal(Buffer.from(await exportResponse.arrayBuffer()).subarray(0, 2).toString(), "PK");
+
     const eventsResponse = await fetch(`${baseUrl}/api/builds/${created.build.id}/events`);
     assert.equal(eventsResponse.headers.get("content-type"), "text/event-stream; charset=utf-8");
     const eventStream = await eventsResponse.text();

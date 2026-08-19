@@ -11,3 +11,5 @@ This directory contains the accepted planning baseline for ForgeWeb.
 - [Architecture Decision Records](./architecture/adr/)
 
 The documents reflect product-owner decisions collected through MCQs, the source-level assessment of [`tirth8205/code-review-graph`](https://github.com/tirth8205/code-review-graph), the provider-neutral engineering workflow adapted from [`garrytan/gstack`](https://github.com/garrytan/gstack), and the shared coding discipline derived from [`multica-ai/andrej-karpathy-skills`](https://github.com/multica-ai/andrej-karpathy-skills).
+
+- [Project workspace implementation plan](./PROJECT_WORKSPACE_IMPLEMENTATION_PLAN.md)

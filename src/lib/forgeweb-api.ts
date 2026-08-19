@@ -21,6 +21,61 @@ export type ArchitecturePlan = {
   capabilities: BuildCapability[];
 };
 
+export type ProjectSummary = {
+  id: string;
+  slug: string;
+  name: string;
+  status: "planning" | "awaiting_confirmation" | "building" | "editing" | "ready" | "validation_failed" | "ready_to_export" | "failed";
+  originalPrompt?: string;
+  currentBuildId?: string;
+  currentVersionId?: string;
+  currentVersionNumber?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StoredFile = { path: string; content: string; requirementIds: string[]; digest: string };
+
+export type ProjectVersion = {
+  id: string;
+  projectId: string;
+  buildId: string;
+  versionNumber: number;
+  label: string;
+  editPrompt: string;
+  modifiedFiles: string[];
+  sourceVersionId?: string;
+  validationStatus: "pending" | "passed" | "failed";
+  validationChecks: Array<{ id: string; name: string; status: "passed" | "failed"; evidence: string }>;
+  createdAt: string;
+};
+
+export type ProjectWorkspace = {
+  project: ProjectSummary;
+  currentVersion?: ProjectVersion;
+  versions: ProjectVersion[];
+  files: StoredFile[];
+  database: {
+    engine: string;
+    schemaSource: string;
+    tables: Array<{ name: string; purpose: string }>;
+    separationNote: string;
+  };
+};
+
+export type ExportSummary = {
+  projectId: string;
+  projectName: string;
+  versionId: string;
+  versionNumber: number;
+  frontend: "generated" | "missing";
+  backend: "generated" | "missing";
+  database: "configured" | "not-required";
+  validation: "passed" | "failed";
+  fileCount: number;
+  checks: Array<{ id: string; name: string; status: "passed" | "failed"; evidence: string }>;
+};
+
 export type BuildResponse = {
   id: string;
   projectId: string;
@@ -41,6 +96,7 @@ export type BuildResponse = {
   };
   filePaths: string[];
   validationChecks: Array<{ id: string; name: string; status: "passed" | "failed"; evidence: string }>;
+  project: ProjectSummary;
 };
 
 type ApiEnvelope = { build: BuildResponse };
@@ -68,6 +124,46 @@ export async function confirmBuild(buildId: string): Promise<BuildResponse> {
 export async function getBuild(buildId: string): Promise<BuildResponse> {
   const payload = await request<ApiEnvelope>(`/api/builds/${encodeURIComponent(buildId)}`);
   return payload.build;
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  const payload = await request<{ projects: ProjectSummary[] }>("/api/projects");
+  return payload.projects;
+}
+
+export async function getProjectWorkspace(projectId: string): Promise<ProjectWorkspace> {
+  const payload = await request<{ workspace: ProjectWorkspace }>(`/api/projects/${encodeURIComponent(projectId)}/workspace`);
+  return payload.workspace;
+}
+
+export async function applyProjectEdit(projectId: string, prompt: string): Promise<{ workspace: ProjectWorkspace; modifiedFiles: string[]; phases: string[] }> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/edits`, { method: "POST", body: JSON.stringify({ prompt }) });
+}
+
+export async function restoreProjectVersion(projectId: string, versionId: string): Promise<ProjectWorkspace> {
+  const payload = await request<{ workspace: ProjectWorkspace }>(`/api/projects/${encodeURIComponent(projectId)}/versions/${encodeURIComponent(versionId)}/restore`, { method: "POST" });
+  return payload.workspace;
+}
+
+export async function validateProjectExport(projectId: string): Promise<ExportSummary> {
+  const payload = await request<{ summary: ExportSummary }>(`/api/projects/${encodeURIComponent(projectId)}/export/validate`, { method: "POST" });
+  return payload.summary;
+}
+
+export async function downloadProjectZip(projectId: string): Promise<void> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/export`, { method: "POST" });
+  if (!response.ok) {
+    const payload = await response.json() as { error?: { message?: string } };
+    throw new Error(payload.error?.message ?? "Project export failed.");
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? "forgeweb-project.zip";
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function waitForBuild(

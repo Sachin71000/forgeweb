@@ -94,6 +94,43 @@ export type GeneratedFile = {
   digest: string;
 };
 
+export type VersionValidationStatus = "pending" | "passed" | "failed";
+
+export type ProjectVersion = {
+  id: string;
+  projectId: string;
+  buildId: string;
+  versionNumber: number;
+  label: string;
+  editPrompt: string;
+  modifiedFiles: string[];
+  sourceVersionId?: string;
+  restoredFromVersionId?: string;
+  validationStatus: VersionValidationStatus;
+  validationChecks: ValidationCheck[];
+  createdAt: string;
+};
+
+export type GeneratedDatabaseInfo = {
+  engine: string;
+  schemaSource: string;
+  tables: Array<{ name: string; purpose: string }>;
+  separationNote: string;
+};
+
+export type ExportSummary = {
+  projectId: string;
+  projectName: string;
+  versionId: string;
+  versionNumber: number;
+  frontend: "generated" | "missing";
+  backend: "generated" | "missing";
+  database: "configured" | "not-required";
+  validation: "passed" | "failed";
+  fileCount: number;
+  checks: ValidationCheck[];
+};
+
 export type ReviewFinding = {
   id: string;
   severity: "info" | "warning" | "error";
@@ -138,12 +175,15 @@ export type Project = {
   id: string;
   slug: string;
   name: string;
-  status: "planning" | "awaiting_confirmation" | "building" | "ready" | "failed";
+  status: "planning" | "awaiting_confirmation" | "building" | "editing" | "ready" | "validation_failed" | "ready_to_export" | "failed";
+  originalPrompt?: string;
   createdAt: string;
   updatedAt: string;
   currentSpecificationId?: string;
   currentBuildId?: string;
   currentGraphSnapshotId?: string;
+  currentVersionId?: string;
+  currentVersionNumber?: number;
 };
 
 export type BuildEvent = {
@@ -176,7 +216,7 @@ export type Build = {
 };
 
 export type ForgeDatabase = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   projects: Record<string, Project>;
   specifications: Record<string, MasterSpecification>;
   builds: Record<string, Build>;
@@ -184,10 +224,21 @@ export type ForgeDatabase = {
   files: Record<string, GeneratedFile[]>;
   events: Record<string, BuildEvent[]>;
   graphs: Record<string, GraphSnapshot>;
+  versions: Record<string, ProjectVersion>;
+  versionFiles: Record<string, GeneratedFile[]>;
 };
 
 export type BuildView = Build & {
   project: Project;
   specification?: MasterSpecification;
   events: BuildEvent[];
+};
+
+export type ProjectWorkspace = {
+  project: Project;
+  specification?: MasterSpecification;
+  currentVersion?: ProjectVersion;
+  versions: ProjectVersion[];
+  files: GeneratedFile[];
+  database: GeneratedDatabaseInfo;
 };

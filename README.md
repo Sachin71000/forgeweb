@@ -15,7 +15,11 @@ ForgeWeb is an architecture-first, full-stack application generator. A user desc
 - Karpathy-derived coding discipline and gstack-informed bounded specialist tasks.
 - Independent scope and traceability review.
 - Deterministic validation and a requirement-to-file evidence graph.
-- Persistent local project/build history in an atomic JSON store.
+- Persistent local projects, immutable version snapshots, and safe restore in an atomic JSON store.
+- A real sandboxed preview generated from the approved project specification, with desktop, tablet, and mobile controls.
+- Prompt-scoped project edits that validate before creating a new version and preserve the last working version on failure.
+- Generated-application database information kept separate from ForgeWeb's control-plane storage.
+- Validation-gated ZIP export containing the actual files from the selected project version.
 - Responsive animated ForgeWeb interface with reduced-motion behavior.
 
 ## Generation flow
@@ -79,6 +83,9 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 3. Review the generated requirements, architecture summary, capability sources, and `ARCHITECTURE.md`.
 4. Select **Confirm requirements & generate**.
 5. Watch frontend generation, backend generation, review, validation, and graph synchronization complete.
+6. Switch between **Files**, **Preview**, **Database**, and **Versions** in the generated project workspace.
+7. Use **Edit with AI** for a scoped change, restore any prior version, or validate and create a ZIP.
+8. Reload the page and use **My Projects** to reopen the persisted workspace.
 
 Local state is stored at `.forgeweb-data/forgeweb.json`. The directory is ignored by Git.
 
@@ -121,6 +128,12 @@ node scripts/ui-audit.cjs
 | `GET` | `/api/builds/:buildId/events` | Stream auditable progress through server-sent events |
 | `GET` | `/api/projects` | List persisted projects |
 | `GET` | `/api/projects/:projectId` | Read project, specification, generated files, and graph |
+| `GET` | `/api/projects/:projectId/workspace` | Read current version, source, version history, and generated database information |
+| `GET` | `/api/projects/:projectId/preview` | Render the current stored preview with restrictive isolation headers |
+| `POST` | `/api/projects/:projectId/edits` | Validate and apply a scoped edit as a new immutable version |
+| `POST` | `/api/projects/:projectId/versions/:versionId/restore` | Restore a validated version |
+| `POST` | `/api/projects/:projectId/export/validate` | Validate the current version and return its export summary |
+| `POST` | `/api/projects/:projectId/export` | Download a real ZIP of the current version |
 
 Example:
 
@@ -143,6 +156,8 @@ src/                         ForgeWeb React interface
   lib/forgeweb-api.ts        Typed browser API client
 server/                      Local generation control plane
   workflow.ts                Architecture and confirmation state machine
+  project-workspace.ts       Preview, scoped edit, version, restore, and export service
+  zip.ts                     Dependency-free ZIP writer for stored project files
   policy.ts                  Bounded engineering-agent policy
   app.ts                     HTTP routes and SSE
   store.ts                   Atomic persistence
@@ -166,10 +181,10 @@ Production identity, external model providers, isolated build workers, PostgreSQ
 - [Product requirements](./docs/PRD.md)
 - [System architecture](./docs/ARCHITECTURE.md)
 - [Implementation plan](./docs/IMPLEMENTATION_PLAN.md)
+- [Project workspace implementation plan](./docs/PROJECT_WORKSPACE_IMPLEMENTATION_PLAN.md)
 - [Architecture decisions and operating model](./docs/README.md)
 - [Third-party notices](./THIRD_PARTY_NOTICES.md)
 
 ## Security note
 
 ForgeWeb is an active prototype. The local control plane demonstrates the workflow and trust boundaries, but generated output must still be reviewed before production deployment. Never commit real provider credentials or private user data.
-

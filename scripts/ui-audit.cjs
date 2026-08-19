@@ -173,7 +173,9 @@ async function auditViewport(browser, viewport) {
     await page.getByRole("button", { name: "Inventory OS" }).click();
     const prompt = await page.locator("#product-prompt").inputValue();
     if (!prompt.includes("inventory os")) metrics.failures.push("quick prompt did not update the composer");
+    const createdResponse = page.waitForResponse((response) => response.url().endsWith("/api/builds") && response.request().method() === "POST");
     await page.getByRole("button", { name: /Forge this idea/i }).click();
+    const projectId = (await (await createdResponse).json()).build.projectId;
     await page.waitForTimeout(200);
     if (!(await page.locator(".hero-build-status").textContent()).includes("Master spec")) metrics.failures.push("build status did not start");
     await page.locator(".build-proposal").waitFor({ state: "visible", timeout: 5000 });
@@ -187,6 +189,68 @@ async function auditViewport(browser, viewport) {
     const generatedPaths = await page.locator(".generated-artifacts code").allTextContents();
     if (!generatedPaths.some((path) => path.startsWith("frontend/"))) metrics.failures.push("generated frontend artifacts are missing");
     if (!generatedPaths.some((path) => path.startsWith("backend/"))) metrics.failures.push("generated backend artifacts are missing");
+
+    await page.getByRole("tab", { name: "Preview" }).click();
+    const previewFrame = page.locator(".preview-stage iframe");
+    await previewFrame.waitFor({ state: "visible", timeout: 5000 });
+    await page.waitForFunction(() => {
+      const frame = document.querySelector(".preview-stage iframe");
+      return frame?.getAttribute("src")?.startsWith("/api/projects/");
+    });
+    await previewFrame.contentFrame().locator("h1").waitFor({ state: "visible", timeout: 5000 });
+    const generatedHeading = await previewFrame.contentFrame().locator("h1").textContent();
+    if (!generatedHeading?.toLowerCase().includes("inventory")) metrics.failures.push("preview is not rendering the generated frontend");
+    const desktopWidthSetting = await previewFrame.evaluate((element) => element.style.width);
+    await page.getByRole("button", { name: "Mobile", exact: true }).click();
+    const mobileWidthSetting = await previewFrame.evaluate((element) => element.style.width);
+    if (desktopWidthSetting !== "100%" || mobileWidthSetting !== "390px") metrics.failures.push("preview device controls did not change viewport width");
+    const oldPreviewSrc = await previewFrame.getAttribute("src");
+    await page.getByRole("button", { name: /Refresh preview/i }).click();
+    await page.waitForFunction((oldSrc) => document.querySelector(".preview-stage iframe")?.getAttribute("src") !== oldSrc, oldPreviewSrc);
+
+    await page.getByRole("button", { name: "Edit with AI" }).click();
+    await page.getByLabel("What would you like to change?").fill("Make the dashboard cards smaller and modern. Keep everything else unchanged.");
+    await page.getByRole("button", { name: "Apply changes" }).click();
+    await page.locator(".changed-files").waitFor({ state: "visible", timeout: 5000 });
+    const scopedFiles = await page.locator(".changed-files code").allTextContents();
+    if (scopedFiles.length !== 2 || !scopedFiles.every((path) => path.startsWith("frontend/"))) metrics.failures.push(`frontend edit changed unexpected files: ${scopedFiles.join(", ")}`);
+    if (!(await page.locator(".workspace-tabs").textContent()).includes("Version 2")) metrics.failures.push("successful AI edit did not create Version 2");
+    await page.getByRole("button", { name: "Close edit panel" }).click();
+
+    await page.getByRole("tab", { name: "Versions" }).click();
+    const versionOne = page.locator(".workspace-versions article").filter({ hasText: "Version 1" });
+    await versionOne.getByRole("button", { name: /Restore/ }).click();
+    await page.waitForFunction(() => document.querySelector(".workspace-tabs")?.textContent?.includes("Version 1"));
+    if (!(await versionOne.locator("strong").textContent()).includes("Current")) metrics.failures.push("restored version is not marked current");
+
+    await page.getByRole("tab", { name: "Preview" }).click();
+    await page.getByRole("button", { name: "Edit with AI" }).click();
+    await page.getByLabel("What would you like to change?").fill("Remove the closing brace and make invalid broken code.");
+    await page.getByRole("button", { name: "Apply changes" }).click();
+    const safetyError = page.locator(".workspace-edit-panel .workspace-error");
+    await safetyError.waitFor({ state: "visible", timeout: 5000 });
+    if (!(await safetyError.textContent()).includes("previous working version remains safe")) metrics.failures.push("failed edit does not explain version safety");
+    if (!(await page.locator(".workspace-tabs").textContent()).includes("Version 1")) metrics.failures.push("failed edit replaced the working version");
+    await page.getByRole("button", { name: "Close edit panel" }).click();
+
+    await page.getByRole("button", { name: "Make ZIP" }).click();
+    await page.getByText("Ready to export", { exact: true }).waitFor({ state: "visible", timeout: 5000 });
+    if (!(await page.locator(".export-summary").textContent()).includes("12")) metrics.failures.push("export summary does not report generated files");
+    await page.getByRole("button", { name: "Close export summary" }).click();
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /My Projects/ }).click();
+    const persistedProject = page.locator(".project-library-list article").filter({ hasText: projectId });
+    await persistedProject.waitFor({ state: "visible", timeout: 5000 });
+    await persistedProject.getByRole("button", { name: "Open" }).click();
+    await page.locator(".project-workspace").waitFor({ state: "visible", timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector(".workspace-tabs")?.textContent?.includes("Version 1"), null, { timeout: 5000 });
+    if (!(await page.locator(".workspace-tabs").textContent()).includes("Version 1")) metrics.failures.push("reopened project did not retain the restored version");
+
+    for (const expectedFailure of [/\/preview\?.*net::ERR_ABORTED/, /status of 422 \(Unprocessable Entity\)/]) {
+      const index = runtimeFailures.findIndex((failure) => expectedFailure.test(failure));
+      if (index >= 0) runtimeFailures.splice(index, 1);
+    }
   }
 
   if (["phone-390", "reported-823", "desktop-1440"].includes(viewport.name)) {

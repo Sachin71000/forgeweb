@@ -18,6 +18,7 @@ import type {
 } from "./domain.ts";
 import { ApiError, assertPrompt, delay, digest, id, now, safePath, slugify } from "./lib.ts";
 import { AGENT_POLICY, createTasks, enforceImplementationTask } from "./policy.ts";
+import { ProjectWorkspaceService } from "./project-workspace.ts";
 import { JsonStore } from "./store.ts";
 
 const stageIndexes: Record<Exclude<BuildStatus, "queued" | "awaiting_confirmation" | "failed" | "needs_context">, number> = {
@@ -44,6 +45,10 @@ function productName(prompt: string): string {
   const candidate = match?.[1]?.replace(/\s+(?:with|for)\s+.*$/i, "").trim();
   if (!candidate) return "ForgeWeb Application";
   return candidate.replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 const buildCapabilities: BuildCapability[] = [
@@ -298,6 +303,31 @@ function generateFiles(specification: MasterSpecification): GeneratedFile[] {
     "@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; scroll-behavior: auto !important; } }",
     "",
   ].join("\n");
+  const frontendPreview = [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="UTF-8" />',
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    "<title>" + escapeHtml(specification.productName) + "</title>",
+    "<style>" + frontendStyles + "</style>",
+    "</head>",
+    "<body>",
+    '<main class="generated-shell">',
+    "<nav><strong>" + escapeHtml(specification.productName) + "</strong><span>Secure workspace</span></nav>",
+    '<section class="generated-hero">',
+    '<p class="eyebrow"><i class="signal-dot"></i> Built from your approved architecture</p>',
+    "<h1>" + escapeHtml(specification.productName) + "</h1>",
+    "<p>A responsive, role-aware product surface with a real frontend/backend boundary.</p>",
+    "</section>",
+    '<section class="generated-grid">',
+    ...specification.architecture.frontend.pages.map((area, index) => '<article class="generated-card"><span>0' + (index + 1) + "</span><h2>" + escapeHtml(area) + "</h2><p>Connected to typed APIs, access policy, validation, and audit evidence.</p></article>"),
+    "</section>",
+    "</main>",
+    "</body>",
+    "</html>",
+    "",
+  ].join("\n");
   const packageJson = {
     name: slugify(specification.productName),
     private: true,
@@ -314,6 +344,7 @@ function generateFiles(specification: MasterSpecification): GeneratedFile[] {
     { path: "frontend/src/App.tsx", requirements: ["REQ-003", "REQ-006"], content: frontendApp },
     { path: "frontend/src/styles.css", requirements: ["REQ-006"], content: frontendStyles },
     { path: "frontend/src/main.tsx", requirements: ["REQ-006"], content: 'import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App.js";\n\ncreateRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);\n' },
+    { path: "frontend/preview.html", requirements: ["REQ-003", "REQ-006"], content: frontendPreview },
     { path: "backend/src/domain/model.ts", requirements: ["REQ-003", "REQ-004"], content: "export type DomainEntity = " + entityUnion + ";\nexport type Role = " + roleUnion + ";\nexport type DomainRecord = { id: string; entity: DomainEntity; ownerId: string; archivedAt?: string; createdAt: string; updatedAt: string };\n" },
     { path: "backend/src/security/access-control.ts", requirements: ["REQ-001", "REQ-002", "REQ-004"], content: 'import type { DomainRecord, Role } from "../domain/model.js";\nexport function canAccess(role: Role, userId: string, record: DomainRecord): boolean { return role === "Owner" || (record.ownerId === userId && !record.archivedAt); }\nexport function requireAccess(allowed: boolean): asserts allowed { if (!allowed) throw new Error("FORBIDDEN"); }\n' },
     { path: "backend/src/api/contracts.ts", requirements: ["REQ-003", "REQ-004", "REQ-005"], content: 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n' },
@@ -348,6 +379,7 @@ function validate(specification: MasterSpecification, files: GeneratedFile[], fi
     { id: id("check"), name: "Architecture contract", status: paths.has("ARCHITECTURE.md") ? "passed" : "failed", evidence: "The approved architecture is preserved beside generated source." },
     { id: id("check"), name: "Required secure boundary", status: paths.has("backend/src/security/access-control.ts") ? "passed" : "failed", evidence: "Server-side access-control artifact is present." },
     { id: id("check"), name: "Customer frontend", status: paths.has("frontend/src/App.tsx") && paths.has("frontend/src/styles.css") ? "passed" : "failed", evidence: "Responsive React application and design system are present." },
+    { id: id("check"), name: "Isolated preview artifact", status: paths.has("frontend/preview.html") ? "passed" : "failed", evidence: "A stored, sandbox-renderable frontend preview is present." },
     { id: id("check"), name: "Customer backend", status: paths.has("backend/src/index.ts") && paths.has("backend/src/api/contracts.ts") ? "passed" : "failed", evidence: "Typed backend entrypoint and API contracts are present." },
     { id: id("check"), name: "Acceptance tests", status: paths.has("tests/acceptance.test.ts") ? "passed" : "failed", evidence: "Generated acceptance-test artifact is present." },
     { id: id("check"), name: "Requirement traceability", status: specification.requirements.every((requirement) => traced.has(requirement.id)) ? "passed" : "failed", evidence: `${traced.size}/${specification.requirements.length} requirement identifiers mapped.` },
@@ -394,10 +426,12 @@ export class BuildWorkflow {
   private running = new Set<string>();
   private readonly store: JsonStore;
   private readonly stageDelayMs: number;
+  readonly workspace: ProjectWorkspaceService;
 
   constructor(store: JsonStore, stageDelayMs = 180) {
     this.store = store;
     this.stageDelayMs = stageDelayMs;
+    this.workspace = new ProjectWorkspaceService(store);
   }
 
   async create(promptValue: unknown): Promise<BuildView> {
@@ -411,6 +445,7 @@ export class BuildWorkflow {
       slug: `${slugify(name)}-${projectId.slice(-5)}`,
       name,
       status: "planning",
+      originalPrompt: prompt,
       createdAt: timestamp,
       updatedAt: timestamp,
       currentBuildId: buildId,
@@ -457,7 +492,7 @@ export class BuildWorkflow {
     return {
       project,
       specification: project.currentSpecificationId ? database.specifications[project.currentSpecificationId] : undefined,
-      files: project.currentBuildId ? database.files[project.currentBuildId] ?? [] : [],
+      files: project.currentVersionId ? database.versionFiles[project.currentVersionId] ?? [] : project.currentBuildId ? database.files[project.currentBuildId] ?? [] : [],
       graph: project.currentGraphSnapshotId ? database.graphs[project.currentGraphSnapshotId] : undefined,
     };
   }
@@ -600,7 +635,24 @@ export class BuildWorkflow {
         build.updatedAt = now();
         build.stages.push({ index: stageIndexes.completed, key: "completed", label: "Graph synchronized", detail: build.stageDetail, startedAt: now(), completedAt: now() });
         const project = database.projects[build.projectId];
+        const versionId = id("version");
+        database.versions[versionId] = {
+          id: versionId,
+          projectId: project.id,
+          buildId,
+          versionNumber: 1,
+          label: "Initial generation",
+          editPrompt: specification.prompt,
+          modifiedFiles: files.map((file) => file.path),
+          validationStatus: "passed",
+          validationChecks: checks,
+          createdAt: now(),
+        };
+        database.versionFiles[versionId] = files;
         project.status = "ready";
+        project.originalPrompt = specification.prompt;
+        project.currentVersionId = versionId;
+        project.currentVersionNumber = 1;
         project.currentGraphSnapshotId = graph.id;
         project.updatedAt = now();
         this.pushEvent(database.events[buildId], buildId, "build.completed", build.stageDetail, { graphNodes: graph.nodes.length, checks: checks.length });
