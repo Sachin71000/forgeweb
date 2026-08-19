@@ -17,6 +17,7 @@ import type {
   ValidationCheck,
 } from "./domain.ts";
 import { ApiError, assertPrompt, delay, digest, id, now, safePath, slugify } from "./lib.ts";
+import { buildGeneratedFrontend, GENERATED_FRONTEND_TEMPLATE } from "./generated-frontend.ts";
 import { AGENT_POLICY, createTasks, enforceImplementationTask } from "./policy.ts";
 import { ProjectWorkspaceService } from "./project-workspace.ts";
 import { JsonStore } from "./store.ts";
@@ -45,10 +46,6 @@ function productName(prompt: string): string {
   const candidate = match?.[1]?.replace(/\s+(?:with|for)\s+.*$/i, "").trim();
   if (!candidate) return "ForgeWeb Application";
   return candidate.replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
 const buildCapabilities: BuildCapability[] = [
@@ -253,81 +250,7 @@ function generateFiles(specification: MasterSpecification): GeneratedFile[] {
   const entityUnion = specification.entities.map((entity) => JSON.stringify(entity)).join(" | ");
   const roleUnion = specification.roles.map((role) => JSON.stringify(role)).join(" | ");
   const productLiteral = JSON.stringify(specification.productName);
-  const areasLiteral = JSON.stringify(specification.architecture.frontend.pages);
-  const frontendApp = [
-    'import { useLayoutEffect, useRef } from "react";',
-    'import gsap from "gsap";',
-    'import { animate, stagger } from "animejs";',
-    'import "./styles.css";',
-    "",
-    "const productName = " + productLiteral + ";",
-    "const areas = " + areasLiteral + ";",
-    "",
-    "export default function App() {",
-    "  const root = useRef<HTMLDivElement>(null);",
-    "  useLayoutEffect(() => {",
-    "    if (!root.current || matchMedia(\"(prefers-reduced-motion: reduce)\").matches) return;",
-    "    const context = gsap.context(() => gsap.from(\".generated-card\", { y: 24, opacity: 0, stagger: 0.08, duration: 0.65, ease: \"power3.out\" }), root);",
-    "    animate(\".signal-dot\", { scale: [0.75, 1.2], opacity: [0.45, 1], delay: stagger(90), loop: true, alternate: true, duration: 900 });",
-    "    return () => context.revert();",
-    "  }, []);",
-    "  return (",
-    "    <main ref={root} className=\"generated-shell\">",
-    "      <nav><strong>{productName}</strong><span>Secure workspace</span></nav>",
-    "      <section className=\"generated-hero\">",
-    "        <p className=\"eyebrow\"><i className=\"signal-dot\" /> Built from your approved architecture</p>",
-    "        <h1>{productName}</h1>",
-    "        <p>A responsive, role-aware product surface with a real frontend/backend boundary.</p>",
-    "      </section>",
-    "      <section className=\"generated-grid\">",
-    "        {areas.map((area, index) => <article className=\"generated-card\" key={area}><span>0{index + 1}</span><h2>{area}</h2><p>Connected to typed APIs, access policy, validation, and audit evidence.</p></article>)}",
-    "      </section>",
-    "    </main>",
-    "  );",
-    "}",
-    "",
-  ].join("\n");
-  const frontendStyles = [
-    ":root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui; background: #070b0c; color: #f7f8f2; }",
-    "* { box-sizing: border-box; } body { margin: 0; min-width: 320px; }",
-    ".generated-shell { min-height: 100vh; padding: clamp(1rem, 4vw, 4rem); background: radial-gradient(circle at 80% 10%, rgba(32,199,224,.2), transparent 28%), #070b0c; }",
-    "nav { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; border-bottom: 1px solid rgba(255,255,255,.1); }",
-    "nav span, .generated-hero p, .generated-card p { color: rgba(255,255,255,.58); }",
-    ".generated-hero { max-width: 900px; padding: clamp(5rem, 10vw, 9rem) 0 4rem; }",
-    ".eyebrow { display: flex; align-items: center; gap: .6rem; color: #dfff68 !important; text-transform: uppercase; letter-spacing: .12em; font-size: .72rem; }",
-    ".signal-dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; background: #dfff68; box-shadow: 0 0 24px #dfff68; }",
-    "h1 { margin: 1rem 0; font-size: clamp(3.5rem, 10vw, 8rem); line-height: .88; letter-spacing: -.07em; }",
-    ".generated-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }",
-    ".generated-card { min-height: 220px; padding: 1.5rem; border: 1px solid rgba(255,255,255,.1); border-radius: 1.4rem; background: rgba(255,255,255,.045); backdrop-filter: blur(20px); }",
-    ".generated-card span { color: #dfff68; font: 700 .7rem ui-monospace; } .generated-card h2 { margin-top: 3.5rem; }",
-    "@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; scroll-behavior: auto !important; } }",
-    "",
-  ].join("\n");
-  const frontendPreview = [
-    "<!doctype html>",
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="UTF-8" />',
-    '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
-    "<title>" + escapeHtml(specification.productName) + "</title>",
-    "<style>" + frontendStyles + "</style>",
-    "</head>",
-    "<body>",
-    '<main class="generated-shell">',
-    "<nav><strong>" + escapeHtml(specification.productName) + "</strong><span>Secure workspace</span></nav>",
-    '<section class="generated-hero">',
-    '<p class="eyebrow"><i class="signal-dot"></i> Built from your approved architecture</p>',
-    "<h1>" + escapeHtml(specification.productName) + "</h1>",
-    "<p>A responsive, role-aware product surface with a real frontend/backend boundary.</p>",
-    "</section>",
-    '<section class="generated-grid">',
-    ...specification.architecture.frontend.pages.map((area, index) => '<article class="generated-card"><span>0' + (index + 1) + "</span><h2>" + escapeHtml(area) + "</h2><p>Connected to typed APIs, access policy, validation, and audit evidence.</p></article>"),
-    "</section>",
-    "</main>",
-    "</body>",
-    "</html>",
-    "",
-  ].join("\n");
+  const frontend = buildGeneratedFrontend(specification);
   const packageJson = {
     name: slugify(specification.productName),
     private: true,
@@ -341,10 +264,10 @@ function generateFiles(specification: MasterSpecification): GeneratedFile[] {
     { path: "README.md", requirements: requirementIds, content: "# " + specification.productName + "\n\n" + specification.summary + "\n\nGenerated only after confirmation of specification " + specification.id + ".\n" },
     { path: "ARCHITECTURE.md", requirements: requirementIds, content: specification.architecture.markdown },
     { path: "package.json", requirements: ["REQ-006"], content: JSON.stringify(packageJson, null, 2) + "\n" },
-    { path: "frontend/src/App.tsx", requirements: ["REQ-003", "REQ-006"], content: frontendApp },
-    { path: "frontend/src/styles.css", requirements: ["REQ-006"], content: frontendStyles },
+    { path: "frontend/src/App.tsx", requirements: ["REQ-003", "REQ-006"], content: frontend.app },
+    { path: "frontend/src/styles.css", requirements: ["REQ-006"], content: frontend.styles },
     { path: "frontend/src/main.tsx", requirements: ["REQ-006"], content: 'import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App.js";\n\ncreateRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);\n' },
-    { path: "frontend/preview.html", requirements: ["REQ-003", "REQ-006"], content: frontendPreview },
+    { path: "frontend/preview.html", requirements: ["REQ-003", "REQ-006"], content: frontend.preview },
     { path: "backend/src/domain/model.ts", requirements: ["REQ-003", "REQ-004"], content: "export type DomainEntity = " + entityUnion + ";\nexport type Role = " + roleUnion + ";\nexport type DomainRecord = { id: string; entity: DomainEntity; ownerId: string; archivedAt?: string; createdAt: string; updatedAt: string };\n" },
     { path: "backend/src/security/access-control.ts", requirements: ["REQ-001", "REQ-002", "REQ-004"], content: 'import type { DomainRecord, Role } from "../domain/model.js";\nexport function canAccess(role: Role, userId: string, record: DomainRecord): boolean { return role === "Owner" || (record.ownerId === userId && !record.archivedAt); }\nexport function requireAccess(allowed: boolean): asserts allowed { if (!allowed) throw new Error("FORBIDDEN"); }\n' },
     { path: "backend/src/api/contracts.ts", requirements: ["REQ-003", "REQ-004", "REQ-005"], content: 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n' },
@@ -379,7 +302,7 @@ function validate(specification: MasterSpecification, files: GeneratedFile[], fi
     { id: id("check"), name: "Architecture contract", status: paths.has("ARCHITECTURE.md") ? "passed" : "failed", evidence: "The approved architecture is preserved beside generated source." },
     { id: id("check"), name: "Required secure boundary", status: paths.has("backend/src/security/access-control.ts") ? "passed" : "failed", evidence: "Server-side access-control artifact is present." },
     { id: id("check"), name: "Customer frontend", status: paths.has("frontend/src/App.tsx") && paths.has("frontend/src/styles.css") ? "passed" : "failed", evidence: "Responsive React application and design system are present." },
-    { id: id("check"), name: "Isolated preview artifact", status: paths.has("frontend/preview.html") ? "passed" : "failed", evidence: "A stored, sandbox-renderable frontend preview is present." },
+    { id: id("check"), name: "Professional preview artifact", status: files.find((file) => file.path === "frontend/preview.html")?.content.includes(GENERATED_FRONTEND_TEMPLATE) ? "passed" : "failed", evidence: "A stored, sandbox-renderable professional application preview is present." },
     { id: id("check"), name: "Customer backend", status: paths.has("backend/src/index.ts") && paths.has("backend/src/api/contracts.ts") ? "passed" : "failed", evidence: "Typed backend entrypoint and API contracts are present." },
     { id: id("check"), name: "Acceptance tests", status: paths.has("tests/acceptance.test.ts") ? "passed" : "failed", evidence: "Generated acceptance-test artifact is present." },
     { id: id("check"), name: "Requirement traceability", status: specification.requirements.every((requirement) => traced.has(requirement.id)) ? "passed" : "failed", evidence: `${traced.size}/${specification.requirements.length} requirement identifiers mapped.` },

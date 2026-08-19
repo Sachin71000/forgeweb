@@ -118,12 +118,12 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
       }
       const workspaceMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/workspace$/);
       if (method === "GET" && workspaceMatch) {
-        send(response, 200, { workspace: workflow.workspace.get(decodeURIComponent(workspaceMatch[1])) });
+        send(response, 200, { workspace: await workflow.workspace.getReady(decodeURIComponent(workspaceMatch[1])) });
         return;
       }
       const previewMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/preview$/);
       if (method === "GET" && previewMatch) {
-        const preview = workflow.workspace.getPreview(decodeURIComponent(previewMatch[1]));
+        const preview = await workflow.workspace.getPreview(decodeURIComponent(previewMatch[1]));
         sendPreview(response, preview.html, preview.versionId);
         return;
       }

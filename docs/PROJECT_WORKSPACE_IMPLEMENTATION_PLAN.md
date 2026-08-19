@@ -44,7 +44,11 @@ ForgeWeb's control-plane database remains separate from the generated applicatio
 
 The generator emits a standalone `frontend/preview.html` artifact from the same approved specification as the React source. ForgeWeb serves that exact stored file to a sandboxed iframe. No generated script receives same-origin access to ForgeWeb. Preview refreshes by changing a revision query after edits or restores.
 
+The current professional template includes a responsive primary navigation, branded application shell, structured hero and performance surface, aligned metrics, records workspace, activity feed, capability grid, and footer. A template marker lets ForgeWeb distinguish the current artifact from the earlier minimal shell.
+
 If a project has no renderable preview artifact, the API returns `PREVIEW_UNAVAILABLE`; the UI shows a real retryable error instead of a fake preview.
+
+Legacy projects are upgraded on first workspace or preview access. ForgeWeb reconstructs the modern frontend and missing modern paths from the stored specification, validates the complete candidate, then records the migration as a new immutable version. It never mutates a historical version in place.
 
 ## Scoped edit strategy
 

@@ -73,7 +73,11 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
     const previewResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/preview`);
     assert.equal(previewResponse.status, 200);
     assert.match(previewResponse.headers.get("content-security-policy") ?? "", /script-src 'none'/);
-    assert.match(await previewResponse.text(), /Team Scheduler/i);
+    const previewHtml = await previewResponse.text();
+    assert.match(previewHtml, /Team Scheduler/i);
+    assert.match(previewHtml, /forgeweb-professional-v2/);
+    assert.match(previewHtml, /aria-label="Primary navigation"/);
+    assert.match(previewHtml, /class="workspace-layout"/);
 
     const editResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/edits`, {
       method: "POST",

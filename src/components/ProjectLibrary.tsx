@@ -1,6 +1,6 @@
 import { Check, FolderOpen, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { getBuild, listProjects, type BuildResponse, type ProjectSummary } from "../lib/forgeweb-api";
+import { getBuild, getProjectWorkspace, listProjects, type BuildResponse, type ProjectSummary } from "../lib/forgeweb-api";
 
 type ProjectLibraryProps = {
   activeProjectId?: string;
@@ -34,6 +34,7 @@ export default function ProjectLibrary({ activeProjectId, refreshToken, onOpen }
     setOpening(project.id);
     setError("");
     try {
+      await getProjectWorkspace(project.id);
       onOpen(await getBuild(project.currentBuildId));
       setOpen(false);
       window.setTimeout(() => document.querySelector(".build-proposal")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);

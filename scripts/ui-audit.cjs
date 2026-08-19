@@ -15,6 +15,8 @@ const viewports = [
   { name: "wide-1920", width: 1920, height: 1080 },
 ];
 
+let generatedProjectId = "";
+
 function recordRuntimeFailures(page) {
   const failures = [];
   page.on("console", (message) => {
@@ -176,6 +178,7 @@ async function auditViewport(browser, viewport) {
     const createdResponse = page.waitForResponse((response) => response.url().endsWith("/api/builds") && response.request().method() === "POST");
     await page.getByRole("button", { name: /Forge this idea/i }).click();
     const projectId = (await (await createdResponse).json()).build.projectId;
+    generatedProjectId = projectId;
     await page.waitForTimeout(200);
     if (!(await page.locator(".hero-build-status").textContent()).includes("Master spec")) metrics.failures.push("build status did not start");
     await page.locator(".build-proposal").waitFor({ state: "visible", timeout: 5000 });
@@ -295,6 +298,61 @@ async function auditGooeyNav(browser) {
   };
 }
 
+async function auditGeneratedPreview(browser, projectId) {
+  if (!projectId) return { failures: ["generated project id was not captured"] };
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const runtimeFailures = recordRuntimeFailures(page);
+  await page.goto(`http://127.0.0.1:5173/api/projects/${projectId}/preview`, { waitUntil: "networkidle" });
+  const desktop = await page.evaluate(() => {
+    const nav = document.querySelector(".app-nav")?.getBoundingClientRect();
+    const navLinks = document.querySelector(".nav-links")?.getBoundingClientRect();
+    const brand = document.querySelector(".brand")?.getBoundingClientRect();
+    const hero = document.querySelector(".app-hero")?.getBoundingClientRect();
+    const metrics = Array.from(document.querySelectorAll(".metric-card"), (element) => element.getBoundingClientRect());
+    const workspace = document.querySelector(".workspace-layout")?.getBoundingClientRect();
+    return {
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      navVisible: Boolean(nav && nav.height >= 60),
+      navLinkCount: document.querySelectorAll(".nav-links a").length,
+      navCenterDelta: navLinks ? Math.abs(navLinks.left + navLinks.width / 2 - innerWidth / 2) : 999,
+      brandInside: Boolean(brand && brand.left >= 0 && brand.right <= innerWidth),
+      heroInside: Boolean(hero && hero.left >= 0 && hero.right <= innerWidth),
+      metricCount: metrics.length,
+      metricSameRow: metrics.length === 4 && Math.max(...metrics.map((rect) => rect.top)) - Math.min(...metrics.map((rect) => rect.top)) < 2,
+      workspaceVisible: Boolean(workspace && workspace.width > 800),
+      template: document.documentElement.dataset.forgewebTemplate,
+    };
+  });
+  await page.screenshot({ path: "generated-project-preview.png", fullPage: false });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(150);
+  const mobile = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    navHidden: getComputedStyle(document.querySelector(".nav-links")).display === "none",
+    brandVisible: document.querySelector(".brand")?.getBoundingClientRect().width > 90,
+    heroColumns: getComputedStyle(document.querySelector(".app-hero")).gridTemplateColumns.split(" ").length,
+  }));
+  await page.close();
+  return {
+    failures: [
+      ...(desktop.overflow ? ["professional preview overflows on desktop"] : []),
+      ...(!desktop.navVisible ? ["professional navigation is not visible"] : []),
+      ...(desktop.navLinkCount !== 4 ? [`expected four generated navigation links, found ${desktop.navLinkCount}`] : []),
+      ...(desktop.navCenterDelta > 3 ? [`generated navigation is off-center by ${desktop.navCenterDelta}px`] : []),
+      ...(!desktop.brandInside || !desktop.heroInside ? ["generated brand or hero is clipped"] : []),
+      ...(desktop.metricCount !== 4 || !desktop.metricSameRow ? ["desktop metric cards are not aligned in one row"] : []),
+      ...(!desktop.workspaceVisible ? ["generated workspace layout is missing"] : []),
+      ...(desktop.template !== "forgeweb-professional-v2" ? ["professional template marker is missing"] : []),
+      ...(mobile.overflow ? ["professional preview overflows on mobile"] : []),
+      ...(!mobile.navHidden || !mobile.brandVisible ? ["generated mobile navigation does not adapt correctly"] : []),
+      ...(mobile.heroColumns !== 1 ? ["generated hero does not collapse to one mobile column"] : []),
+      ...runtimeFailures,
+    ],
+    desktop,
+    mobile,
+  };
+}
+
 async function auditKeyboard(browser) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const runtimeFailures = recordRuntimeFailures(page);
@@ -380,8 +438,9 @@ async function run() {
     headless: true,
     executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
   });
-  const results = { viewports: {}, gooeyNav: null, keyboard: null, reducedMotion: null, performance: null };
+  const results = { viewports: {}, generatedPreview: null, gooeyNav: null, keyboard: null, reducedMotion: null, performance: null };
   for (const viewport of viewports) results.viewports[viewport.name] = await auditViewport(browser, viewport);
+  results.generatedPreview = await auditGeneratedPreview(browser, generatedProjectId);
   results.gooeyNav = await auditGooeyNav(browser);
   results.keyboard = await auditKeyboard(browser);
   results.reducedMotion = await auditReducedMotion(browser);
@@ -390,6 +449,7 @@ async function run() {
 
   const failures = [
     ...Object.entries(results.viewports).flatMap(([name, result]) => result.failures.map((failure) => `${name}: ${failure}`)),
+    ...results.generatedPreview.failures.map((failure) => `generated-preview: ${failure}`),
     ...results.gooeyNav.failures.map((failure) => `gooey-nav: ${failure}`),
     ...results.keyboard.failures.map((failure) => `keyboard: ${failure}`),
     ...results.reducedMotion.failures.map((failure) => `reduced-motion: ${failure}`),

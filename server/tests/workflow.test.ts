@@ -70,7 +70,11 @@ test("project workspace supports real preview, scoped versions, restore, persist
     const initial = workflow.workspace.get(build.projectId);
     assert.equal(initial.currentVersion?.versionNumber, 1);
     assert.equal(initial.versions.length, 1);
-    assert.match(workflow.workspace.getPreview(build.projectId).html, /Inventory Dashboard/i);
+    const initialPreview = await workflow.workspace.getPreview(build.projectId);
+    assert.match(initialPreview.html, /Inventory Dashboard/i);
+    assert.match(initialPreview.html, /forgeweb-professional-v2/);
+    assert.match(initialPreview.html, /aria-label="Primary navigation"/);
+    assert.match(initialPreview.html, /class="workspace-layout"/);
     const initialStyles = initial.files.find((file) => file.path === "frontend/src/styles.css")?.digest;
     const initialBackend = initial.files.find((file) => file.path === "backend/src/index.ts")?.digest;
 
@@ -106,6 +110,63 @@ test("project workspace supports real preview, scoped versions, restore, persist
     assert.equal(exported.archive.subarray(0, 2).toString(), "PK");
     assert.ok(exported.archive.includes(Buffer.from("frontend/src/App.tsx")));
     assert.ok(exported.archive.includes(Buffer.from("backend/src/index.ts")));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("legacy projects automatically gain a versioned professional preview", async () => {
+  const { directory, store, workflow } = await fixture();
+  try {
+    const created = await workflow.create("Build a secure inventory portal with products, stock alerts, suppliers, and team access.");
+    await waitForBuild(workflow, created.id, ["awaiting_confirmation"]);
+    await workflow.confirm(created.id);
+    const build = await waitForBuild(workflow, created.id, ["completed", "failed"]);
+    assert.equal(build.status, "completed");
+
+    await store.mutate((database) => {
+      const project = database.projects[build.projectId];
+      project.currentVersionId = undefined;
+      project.currentVersionNumber = undefined;
+      for (const version of Object.values(database.versions)) {
+        if (version.projectId === build.projectId) {
+          delete database.versionFiles[version.id];
+          delete database.versions[version.id];
+        }
+      }
+      const legacyPaths: Record<string, string> = {
+        "backend/src/domain/model.ts": "src/domain/model.ts",
+        "backend/src/security/access-control.ts": "src/security/access-control.ts",
+        "backend/src/api/contracts.ts": "src/api/contracts.ts",
+      };
+      database.files[build.id] = database.files[build.id]
+        .filter((file) => ["README.md", "package.json", "tests/acceptance.test.ts", ...Object.keys(legacyPaths)].includes(file.path))
+        .map((file) => ({ ...file, path: legacyPaths[file.path] ?? file.path }));
+      const packageFile = database.files[build.id].find((file) => file.path === "package.json")!;
+      packageFile.content = '{"name":"legacy-project","private":true,"scripts":{"test":"node --test"}}\n';
+      packageFile.digest = "sha256:legacy-package";
+      database.builds[build.id].filePaths = database.files[build.id].map((file) => file.path);
+      delete (database.specifications[project.currentSpecificationId!] as { architecture?: unknown }).architecture;
+    });
+
+    const repaired = await workflow.workspace.getReady(build.projectId);
+    assert.equal(repaired.currentVersion?.versionNumber, 1);
+    assert.equal(repaired.currentVersion?.label, "Professional interface upgrade");
+    assert.equal(repaired.files.length, 12);
+    assert.ok(repaired.files.some((file) => file.path === "frontend/preview.html"));
+    assert.ok(repaired.specification?.architecture);
+    assert.ok(repaired.files.every((file) => !file.path.startsWith("src/")));
+    assert.match((await workflow.workspace.getPreview(build.projectId)).html, /aria-label="Primary navigation"/);
+
+    await store.mutate((database) => {
+      const versionId = database.projects[build.projectId].currentVersionId!;
+      const preview = database.versionFiles[versionId].find((file) => file.path === "frontend/preview.html")!;
+      preview.content = "<!doctype html><html><body>Legacy preview</body></html>";
+      preview.digest = "sha256:legacy";
+    });
+    const upgraded = await workflow.workspace.getReady(build.projectId);
+    assert.equal(upgraded.currentVersion?.versionNumber, 2);
+    assert.match(upgraded.files.find((file) => file.path === "frontend/preview.html")?.content ?? "", /forgeweb-professional-v2/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

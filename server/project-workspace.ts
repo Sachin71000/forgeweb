@@ -7,6 +7,7 @@ import type {
   ProjectWorkspace,
   ValidationCheck,
 } from "./domain.ts";
+import { buildGeneratedFrontend, GENERATED_FRONTEND_TEMPLATE, normalizeMasterSpecification } from "./generated-frontend.ts";
 import { ApiError, assertPrompt, digest, id, now, safePath, slugify } from "./lib.ts";
 import { JsonStore } from "./store.ts";
 import { createProjectZip } from "./zip.ts";
@@ -20,9 +21,9 @@ export type EditResult = {
 };
 
 function databaseInfo(specification?: MasterSpecification): GeneratedDatabaseInfo {
-  const entities = specification?.architecture.data.entities ?? [];
+  const entities = specification?.architecture?.data?.entities ?? specification?.entities ?? [];
   return {
-    engine: specification?.architecture.data.database ?? "Not required",
+    engine: specification?.architecture?.data?.database ?? (specification ? "PostgreSQL" : "Not required"),
     schemaSource: "Approved master specification",
     tables: entities.map((entity) => ({
       name: entity.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase() + "s",
@@ -44,7 +45,7 @@ function validateStoredProject(files: GeneratedFile[]): ValidationCheck[] {
     ["Package configuration", byPath.has("package.json"), "package.json is present."],
     ["Frontend source", app.includes("export default function App") && byPath.has("frontend/src/main.tsx"), "React entrypoint and App component are present."],
     ["Frontend styles", Boolean(css) && openBraces === closeBraces, `${openBraces} opening and ${closeBraces} closing CSS braces.`],
-    ["Preview source", preview.startsWith("<!doctype html>") && preview.includes("</html>"), "Stored preview is a complete HTML document."],
+    ["Professional preview source", preview.startsWith("<!doctype html>") && preview.includes("</html>") && preview.includes(GENERATED_FRONTEND_TEMPLATE) && preview.includes('aria-label="Primary navigation"'), "Stored preview is a complete professional application document with primary navigation."],
     ["Backend source", byPath.has("backend/src/index.ts") && byPath.has("backend/src/api/contracts.ts"), "Typed backend entrypoint and contracts are present."],
     ["Security boundary", byPath.has("backend/src/security/access-control.ts"), "Server access-control source is present."],
     ["Architecture", byPath.has("ARCHITECTURE.md"), "Architecture contract is present."],
@@ -72,6 +73,83 @@ function replaceFile(files: GeneratedFile[], path: string, transform: (content: 
   file.content = content;
   file.digest = digest(content);
   modified.add(path);
+}
+
+function professionalizeFrontend(sourceFiles: GeneratedFile[], specification: MasterSpecification): { files: GeneratedFile[]; modifiedFiles: string[] } {
+  const files = structuredClone(sourceFiles);
+  const frontend = buildGeneratedFrontend(specification);
+  const modifiedFiles = new Set<string>();
+  const setFile = (path: string, content: string, requirements: string[]) => {
+    const existing = files.find((file) => file.path === path);
+    if (existing?.content === content) return;
+    if (existing) {
+      existing.content = content;
+      existing.digest = digest(content);
+    } else {
+      files.push({ path, content, requirementIds: requirements, digest: digest(content) });
+    }
+    modifiedFiles.add(path);
+  };
+  const moveLegacyFile = (legacyPath: string, modernPath: string, fallback: string, requirements: string[]) => {
+    const legacy = files.find((file) => file.path === legacyPath);
+    const current = files.find((file) => file.path === modernPath);
+    if (!current) setFile(modernPath, legacy?.content ?? fallback, legacy?.requirementIds ?? requirements);
+    if (legacy) {
+      files.splice(files.indexOf(legacy), 1);
+      modifiedFiles.add(legacyPath);
+    }
+  };
+
+  setFile("frontend/src/App.tsx", frontend.app, ["REQ-003", "REQ-006"]);
+  setFile("frontend/src/styles.css", frontend.styles, ["REQ-006"]);
+  setFile("frontend/preview.html", frontend.preview, ["REQ-003", "REQ-006"]);
+  setFile("frontend/src/main.tsx", 'import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App.js";\n\ncreateRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);\n', ["REQ-006"]);
+
+  const entities = specification.entities.map((entity) => JSON.stringify(entity)).join(" | ");
+  const roles = specification.roles.map((role) => JSON.stringify(role)).join(" | ");
+  moveLegacyFile("src/domain/model.ts", "backend/src/domain/model.ts", `export type DomainEntity = ${entities};\nexport type Role = ${roles};\nexport type DomainRecord = { id: string; entity: DomainEntity; ownerId: string; archivedAt?: string; createdAt: string; updatedAt: string };\n`, ["REQ-003", "REQ-004"]);
+  moveLegacyFile("src/security/access-control.ts", "backend/src/security/access-control.ts", 'import type { DomainRecord, Role } from "../domain/model.js";\nexport function canAccess(role: Role, userId: string, record: DomainRecord): boolean { return role === "Owner" || (record.ownerId === userId && !record.archivedAt); }\n', ["REQ-001", "REQ-002", "REQ-004"]);
+  moveLegacyFile("src/api/contracts.ts", "backend/src/api/contracts.ts", 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n', ["REQ-003", "REQ-004", "REQ-005"]);
+  setFile("backend/src/index.ts", `export const service = { name: ${JSON.stringify(specification.productName)}, status: "ready", apiVersion: "v1" } as const;\n`, ["REQ-001", "REQ-002", "REQ-003"]);
+
+  const architecture = specification.architecture?.markdown ?? [
+    `# ${specification.productName} Architecture`,
+    "",
+    "## System shape",
+    "",
+    "- Professional React and TypeScript customer frontend",
+    "- Typed Node.js backend with server-side role authorization",
+    "- PostgreSQL data model with project-scoped ownership",
+    "- Versioned validation, audit evidence, and project exports",
+    "",
+    "## Domain",
+    "",
+    ...specification.entities.map((entity) => `- ${entity}`),
+    "",
+  ].join("\n");
+  setFile("ARCHITECTURE.md", architecture, specification.requirements.map((requirement) => requirement.id));
+
+  const packageJson = {
+    name: slugify(specification.productName),
+    private: true,
+    version: "0.1.0",
+    type: "module",
+    scripts: { dev: "vite", build: "tsc -b && vite build", test: "node --test" },
+    dependencies: { animejs: "^4.5.0", gsap: "^3.15.0", react: "^19.2.0", "react-dom": "^19.2.0" },
+    devDependencies: { "@vitejs/plugin-react": "^6.0.0", typescript: "^7.0.0", vite: "^8.0.0" },
+  };
+  const existingPackage = files.find((file) => file.path === "package.json")?.content ?? "";
+  if (!existingPackage.includes('"react"')) setFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, ["REQ-006"]);
+
+  return { files, modifiedFiles: [...modifiedFiles] };
+}
+
+function hasProfessionalFrontend(files: GeneratedFile[]): boolean {
+  const paths = new Set(files.map((file) => file.path));
+  const requiredPaths = ["ARCHITECTURE.md", "frontend/src/App.tsx", "frontend/src/styles.css", "frontend/src/main.tsx", "frontend/preview.html", "backend/src/index.ts", "backend/src/domain/model.ts", "backend/src/security/access-control.ts", "backend/src/api/contracts.ts"];
+  return requiredPaths.every((path) => paths.has(path))
+    && files.find((file) => file.path === "frontend/preview.html")?.content.includes(GENERATED_FRONTEND_TEMPLATE) === true
+    && files.find((file) => file.path === "frontend/src/App.tsx")?.content.includes(GENERATED_FRONTEND_TEMPLATE) === true;
 }
 
 function cssEdit(prompt: string): string {
@@ -125,6 +203,7 @@ function applyScopedEdit(sourceFiles: GeneratedFile[], prompt: string): { files:
 
 export class ProjectWorkspaceService {
   private readonly store: JsonStore;
+  private readonly upgradeLocks = new Map<string, Promise<void>>();
 
   constructor(store: JsonStore) {
     this.store = store;
@@ -143,8 +222,62 @@ export class ProjectWorkspaceService {
     return { project, specification, currentVersion, versions, files, database: databaseInfo(specification) };
   }
 
-  getPreview(projectId: string): { html: string; versionId: string } {
+  async getReady(projectId: string): Promise<ProjectWorkspace> {
+    await this.ensureProfessionalFrontend(projectId);
+    return this.get(projectId);
+  }
+
+  private async ensureProfessionalFrontend(projectId: string): Promise<void> {
+    const running = this.upgradeLocks.get(projectId);
+    if (running) return running;
+    const upgrade = this.performProfessionalFrontendUpgrade(projectId).finally(() => this.upgradeLocks.delete(projectId));
+    this.upgradeLocks.set(projectId, upgrade);
+    return upgrade;
+  }
+
+  private async performProfessionalFrontendUpgrade(projectId: string): Promise<void> {
     const workspace = this.get(projectId);
+    if (hasProfessionalFrontend(workspace.files) && workspace.specification?.architecture) return;
+    if (!workspace.specification || workspace.files.length === 0 || !workspace.project.currentBuildId) return;
+    const specification = normalizeMasterSpecification(workspace.specification);
+    const candidate = professionalizeFrontend(workspace.files, specification);
+    const checks = validateStoredProject(candidate.files);
+    if (checks.some((check) => check.status === "failed")) throw new ApiError(422, "PREVIEW_UPGRADE_FAILED", "The stored project could not be upgraded to the current preview format.");
+    await this.store.mutate((database) => {
+      const project = database.projects[projectId];
+      database.specifications[specification.id] = specification;
+      const versions = Object.values(database.versions).filter((version) => version.projectId === projectId);
+      const versionNumber = Math.max(0, ...versions.map((version) => version.versionNumber)) + 1;
+      const versionId = id("version");
+      database.versions[versionId] = {
+        id: versionId,
+        projectId,
+        buildId: project.currentBuildId!,
+        versionNumber,
+        label: "Professional interface upgrade",
+        editPrompt: "Automatic compatibility upgrade: restore preview support and apply the professional responsive application template.",
+        modifiedFiles: candidate.modifiedFiles,
+        sourceVersionId: workspace.currentVersion?.id,
+        validationStatus: "passed",
+        validationChecks: checks,
+        createdAt: now(),
+      };
+      database.versionFiles[versionId] = candidate.files;
+      project.currentVersionId = versionId;
+      project.currentVersionNumber = versionNumber;
+      project.status = "ready";
+      project.updatedAt = now();
+      const build = database.builds[project.currentBuildId!];
+      if (build) {
+        database.files[build.id] = candidate.files;
+        build.filePaths = candidate.files.map((file) => file.path);
+        build.updatedAt = now();
+      }
+    });
+  }
+
+  async getPreview(projectId: string): Promise<{ html: string; versionId: string }> {
+    const workspace = await this.getReady(projectId);
     const preview = workspace.files.find((file) => file.path === "frontend/preview.html");
     if (!preview || !workspace.currentVersion) throw new ApiError(422, "PREVIEW_UNAVAILABLE", "This project does not contain a renderable frontend preview.");
     return { html: preview.content, versionId: workspace.currentVersion.id };
@@ -152,7 +285,7 @@ export class ProjectWorkspaceService {
 
   async edit(projectId: string, promptValue: unknown): Promise<EditResult> {
     const prompt = assertPrompt(promptValue);
-    const workspace = this.get(projectId);
+    const workspace = await this.getReady(projectId);
     if (!workspace.currentVersion) throw new ApiError(409, "PROJECT_NOT_GENERATED", "Generate the project before applying an edit.");
     await this.store.mutate((database) => {
       database.projects[projectId].status = "editing";
@@ -201,7 +334,7 @@ export class ProjectWorkspaceService {
   }
 
   async restore(projectId: string, versionId: string): Promise<ProjectWorkspace> {
-    const workspace = this.get(projectId);
+    const workspace = await this.getReady(projectId);
     const version = workspace.versions.find((candidate) => candidate.id === versionId);
     if (!version || version.validationStatus !== "passed") throw new ApiError(404, "VERSION_NOT_RESTORABLE", "The selected validated version was not found.");
     await this.store.mutate((database) => {
@@ -215,7 +348,7 @@ export class ProjectWorkspaceService {
   }
 
   async validateExport(projectId: string): Promise<ExportSummary> {
-    const workspace = this.get(projectId);
+    const workspace = await this.getReady(projectId);
     if (!workspace.currentVersion) throw new ApiError(409, "PROJECT_NOT_GENERATED", "Generate the project before exporting it.");
     const checks = validateStoredProject(workspace.files);
     const passed = checks.every((check) => check.status === "passed");
