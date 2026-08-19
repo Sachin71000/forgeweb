@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { createForgeWebServer } from "../app.ts";
+import { JsonStore } from "../store.ts";
+import { BuildWorkflow } from "../workflow.ts";
+
+test("HTTP boundaries expose proposal, confirmation, and completed build phases", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "forgeweb-http-test-"));
+  const store = new JsonStore(directory);
+  await store.initialize();
+  const workflow = new BuildWorkflow(store, 0);
+  const server = createForgeWebServer(workflow);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const healthResponse = await fetch(`${baseUrl}/api/health`);
+    assert.equal(healthResponse.status, 200);
+    assert.equal((await healthResponse.json() as { status: string }).status, "ok");
+
+    const invalidResponse = await fetch(`${baseUrl}/api/builds`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "short" }),
+    });
+    assert.equal(invalidResponse.status, 400);
+    assert.equal((await invalidResponse.json() as { error: { code: string } }).error.code, "PROMPT_TOO_SHORT");
+
+    const createResponse = await fetch(`${baseUrl}/api/builds`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "Build a secure team scheduler with client access and audit history." }),
+    });
+    assert.equal(createResponse.status, 202);
+    const created = await createResponse.json() as { build: { id: string; projectId: string } };
+    let status = "queued";
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/builds/${created.build.id}`);
+      const payload = await response.json() as { build: { status: string } };
+      status = payload.build.status;
+      if (["awaiting_confirmation", "failed"].includes(status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(status, "awaiting_confirmation");
+
+    const projectBeforeConfirmation = await fetch(`${baseUrl}/api/projects/${created.build.projectId}`);
+    assert.equal(projectBeforeConfirmation.status, 200);
+    const snapshot = await projectBeforeConfirmation.json() as { files: unknown[] };
+    assert.equal(snapshot.files.length, 0);
+
+    const confirmationResponse = await fetch(`${baseUrl}/api/builds/${created.build.id}/confirm`, { method: "POST" });
+    assert.equal(confirmationResponse.status, 202);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const response = await fetch(`${baseUrl}/api/builds/${created.build.id}`);
+      const payload = await response.json() as { build: { status: string } };
+      status = payload.build.status;
+      if (["completed", "failed"].includes(status)) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(status, "completed");
+
+    const eventsResponse = await fetch(`${baseUrl}/api/builds/${created.build.id}/events`);
+    assert.equal(eventsResponse.headers.get("content-type"), "text/event-stream; charset=utf-8");
+    const eventStream = await eventsResponse.text();
+    assert.match(eventStream, /event: build\.created/);
+    assert.match(eventStream, /event: build\.awaiting_confirmation/);
+    assert.match(eventStream, /event: build\.confirmed/);
+    assert.match(eventStream, /event: build\.completed/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});

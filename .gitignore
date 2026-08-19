@@ -1,0 +1,14 @@
+node_modules/
+node_modules.interrupted-*/
+.pnpm-store/
+dist/
+dist-server/
+.forgeweb-data/
+*.tsbuildinfo
+playwright-report/
+test-results/
+ui-audit-*.png
+*.log
+.env
+.env.*
+!.env.example

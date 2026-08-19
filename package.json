@@ -1,0 +1,39 @@
+{
+  "name": "forgeweb-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:api": "node --experimental-strip-types server/index.ts",
+    "build": "tsc -b && vite build && tsc -p tsconfig.server.build.json",
+    "build:api": "tsc -p tsconfig.server.build.json",
+    "start:api": "node dist-server/index.js",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc -b --pretty false && tsc -p tsconfig.server.json --pretty false",
+    "test": "node --experimental-strip-types --test server/tests/*.test.ts"
+  },
+  "dependencies": {
+    "animejs": "^4.5.0",
+    "clsx": "^2.1.1",
+    "gsap": "^3.15.0",
+    "lucide-react": "^1.31.0",
+    "motion": "^13.1.0",
+    "ogl": "^1.0.11",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "24.3.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@types/three": "^0.185.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
+  }
+}
