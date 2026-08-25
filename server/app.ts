@@ -92,7 +92,7 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
     const method = request.method ?? "GET";
     try {
       if (method === "GET" && requestUrl.pathname === "/api/health") {
-        send(response, 200, { status: "ok", service: "forgeweb-control-plane", time: new Date().toISOString() });
+        send(response, 200, { status: "ok", service: "forgeweb-control-plane", generation: workflow.generationStatus(), time: new Date().toISOString() });
         return;
       }
       if (method === "GET" && requestUrl.pathname === "/api/projects") {

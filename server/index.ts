@@ -2,17 +2,20 @@ import { resolve } from "node:path";
 import { createForgeWebServer } from "./app.ts";
 import { JsonStore } from "./store.ts";
 import { BuildWorkflow } from "./workflow.ts";
+import { createGenerationProviderFromEnv } from "./providers/generation-provider.ts";
 
 const port = Number.parseInt(process.env.FORGEWEB_API_PORT ?? "8787", 10);
 const dataDirectory = resolve(process.env.FORGEWEB_DATA_DIR ?? ".forgeweb-data");
 const store = new JsonStore(dataDirectory);
 await store.initialize();
-const workflow = new BuildWorkflow(store);
+const provider = createGenerationProviderFromEnv();
+const workflow = new BuildWorkflow(store, 180, provider);
 const server = createForgeWebServer(workflow);
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`ForgeWeb control plane listening on http://127.0.0.1:${port}`);
   console.log(`Persistent data: ${dataDirectory}`);
+  console.log(provider ? `Generation provider: Google Gemini (${provider.model})` : "Generation provider: deterministic local fallback");
 });
 
 const shutdown = () => server.close(() => process.exit(0));

@@ -27,6 +27,8 @@ export type Requirement = {
   priority: "P0" | "P1";
 };
 
+export type ProductKind = "commerce" | "inventory" | "scheduler" | "portal" | "generic";
+
 export type BuildCapability = {
   id: "react" | "git" | "gsap" | "animejs" | "react-bits";
   name: string;
@@ -38,8 +40,8 @@ export type BuildCapability = {
 
 export type ArchitecturePlan = {
   systemShape: string;
-  frontend: { framework: string; pages: string[]; components: string[]; motion: string[] };
-  backend: { runtime: string; modules: string[]; apiStyle: string; jobs: string[] };
+  frontend: { framework: string; pages: string[]; components: string[]; motion: string[]; visualDirection?: string };
+  backend: { runtime: string; modules: string[]; apiStyle: string; jobs: string[]; routes?: string[] };
   data: { database: string; entities: string[]; rules: string[] };
   security: string[];
   delivery: string[];
@@ -54,6 +56,7 @@ export type MasterSpecification = {
   version: number;
   status: "proposed" | "approved";
   prompt: string;
+  productKind: ProductKind;
   productName: string;
   summary: string;
   roles: string[];
@@ -61,6 +64,12 @@ export type MasterSpecification = {
   requirements: Requirement[];
   assumptions: string[];
   architecture: ArchitecturePlan;
+  generator?: {
+    mode: "gemini" | "deterministic";
+    provider: "google-gemini" | "forgeweb-local";
+    model: string;
+    message: string;
+  };
   createdAt: string;
   confirmedAt?: string;
 };

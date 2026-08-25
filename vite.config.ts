@@ -1,12 +1,13 @@
 import { resolve } from "node:path";
-import { defineConfig, type Plugin } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { createForgeWebRequestHandler, type ForgeWebRequestHandler } from "./server/app.ts";
 import { JsonStore } from "./server/store.ts";
 import { BuildWorkflow } from "./server/workflow.ts";
+import { createGenerationProviderFromEnv } from "./server/providers/generation-provider.ts";
 
-function forgeWebDevApi(): Plugin {
+function forgeWebDevApi(environment: Record<string, string>): Plugin {
   let handler: Promise<ForgeWebRequestHandler> | undefined;
   return {
     name: "forgeweb-dev-api",
@@ -14,7 +15,7 @@ function forgeWebDevApi(): Plugin {
       handler ??= (async () => {
         const store = new JsonStore(resolve(process.cwd(), ".forgeweb-data"));
         await store.initialize();
-        return createForgeWebRequestHandler(new BuildWorkflow(store));
+        return createForgeWebRequestHandler(new BuildWorkflow(store, 180, createGenerationProviderFromEnv(environment)));
       })();
       server.middlewares.use((request, response, next) => {
         if (!request.url?.startsWith("/api")) {
@@ -27,8 +28,8 @@ function forgeWebDevApi(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [forgeWebDevApi(), react(), tailwindcss()],
+export default defineConfig(({ mode }) => ({
+  plugins: [forgeWebDevApi(loadEnv(mode, process.cwd(), "")), react(), tailwindcss()],
   build: {
     chunkSizeWarningLimit: 550,
     rolldownOptions: {
@@ -58,4 +59,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

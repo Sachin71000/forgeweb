@@ -12,14 +12,17 @@ import type {
   GraphSnapshot,
   MasterSpecification,
   Project,
+  ProductKind,
   Requirement,
   ReviewFinding,
   ValidationCheck,
 } from "./domain.ts";
 import { ApiError, assertPrompt, delay, digest, id, now, safePath, slugify } from "./lib.ts";
-import { buildGeneratedFrontend, GENERATED_FRONTEND_TEMPLATE } from "./generated-frontend.ts";
+import { buildGeneratedFrontend, hasGeneratedFrontendMarker } from "./generated-frontend.ts";
+import { detectProductKind, inferDomainEntities, inferProductName } from "./product-intent.ts";
 import { AGENT_POLICY, createTasks, enforceImplementationTask } from "./policy.ts";
 import { ProjectWorkspaceService } from "./project-workspace.ts";
+import { applyProviderPlan, type ApplicationGenerationProvider } from "./providers/generation-provider.ts";
 import { JsonStore } from "./store.ts";
 
 const stageIndexes: Record<Exclude<BuildStatus, "queued" | "awaiting_confirmation" | "failed" | "needs_context">, number> = {
@@ -30,23 +33,6 @@ const stageIndexes: Record<Exclude<BuildStatus, "queued" | "awaiting_confirmatio
   validating: 4,
   completed: 5,
 };
-
-const entityKeywords: Array<[RegExp, string]> = [
-  [/projects?/i, "Project"],
-  [/invoices?|billing/i, "Invoice"],
-  [/files?|documents?/i, "FileAsset"],
-  [/inventory|stock/i, "InventoryItem"],
-  [/teams?|staff/i, "TeamMember"],
-  [/schedul|calendar/i, "ScheduleEntry"],
-  [/clients?|customers?/i, "Client"],
-];
-
-function productName(prompt: string): string {
-  const match = prompt.match(/(?:build|create|make)\s+(?:an?\s+)?(?:secure\s+)?([^,.]{3,48})/i);
-  const candidate = match?.[1]?.replace(/\s+(?:with|for)\s+.*$/i, "").trim();
-  if (!candidate) return "ForgeWeb Application";
-  return candidate.replace(/\b\w/g, (character) => character.toUpperCase());
-}
 
 const buildCapabilities: BuildCapability[] = [
   {
@@ -94,26 +80,36 @@ const buildCapabilities: BuildCapability[] = [
 function createArchitecture(
   name: string,
   prompt: string,
+  kind: ProductKind,
   roles: string[],
   entities: string[],
   requirements: Requirement[],
 ): ArchitecturePlan {
-  const isCommerce = /shop|store|commerce|product catalog|checkout/i.test(prompt);
+  const isCommerce = kind === "commerce";
   const isDashboard = /portal|dashboard|admin|inventory|scheduler/i.test(prompt);
-  const pages = [
+  const pages = isCommerce ? [
+    "Premium storefront home",
+    "Category, search, and filtered results",
+    "Product details and verified reviews",
+    "Cart and wishlist",
+    "Secure checkout and payment",
+    "Order tracking and customer profile",
+    "Admin products, users, inventory, and orders",
+  ] : [
     "Secure sign-in",
     isDashboard ? "Role-aware dashboard" : "Product home",
     ...entities.filter((entity) => entity !== "User").slice(0, 4).map((entity) => entity + " workspace"),
-    isCommerce ? "Checkout and order status" : "Activity and audit history",
+    "Activity and audit history",
     "Settings and access management",
   ];
-  const components = [
-    "Responsive application shell",
-    "Command and search surface",
-    "Data cards and empty states",
-    "Accessible forms and confirmation dialogs",
-    "Evidence and activity timeline",
-  ];
+  const components = isCommerce ? [
+    "Responsive commerce navigation and global search",
+    "Category rail, search filters, and sorting",
+    "Product gallery, pricing, ratings, and inventory state",
+    "Persistent cart and wishlist",
+    "Checkout, payment, and order tracking surfaces",
+    "Customer account and admin operations dashboard",
+  ] : ["Responsive application shell", "Command and search surface", "Data cards and empty states", "Accessible forms and confirmation dialogs", "Evidence and activity timeline"];
   const diagram = [
     "flowchart LR",
     "  Browser[React customer app] --> API[Typed backend API]",
@@ -206,18 +202,31 @@ function createArchitecture(
 }
 
 function compileSpecification(projectId: string, prompt: string): MasterSpecification {
-  const name = productName(prompt);
-  const entities = ["User", ...entityKeywords.filter(([keyword]) => keyword.test(prompt)).map(([, entity]) => entity)];
-  const uniqueEntities = [...new Set(entities)];
-  const roles = ["Owner", "Member", ...(/client|customer/i.test(prompt) ? ["Client"] : [])];
-  const requirements: Requirement[] = [
+  const productKind = detectProductKind(prompt);
+  const name = inferProductName(prompt, productKind);
+  const entities = inferDomainEntities(prompt, productKind);
+  const roles = productKind === "commerce" ? ["Owner", "Admin", "Customer", "Support"] : ["Owner", "Member", ...(/client|customer/i.test(prompt) ? ["Client"] : [])];
+  const requirementDefinitions: Array<[string, string]> = productKind === "commerce" ? [
+    ["Customer identity", "Customers can securely sign up, sign in, recover access, and manage saved addresses and profile data."],
+    ["Catalog discovery", "Customers can browse categories, search products, filter and sort results, and receive fast paginated responses."],
+    ["Product decisions", "Product details include media, variants, price, availability, delivery information, verified ratings, and reviews."],
+    ["Cart and wishlist", "Authenticated and guest customers can maintain a persistent cart and wishlist with validated price and stock state."],
+    ["Secure checkout", "Checkout validates address, delivery option, promotions, tax, inventory, and the final order total on the server."],
+    ["Payments", "Payment intents and webhooks are idempotent, signed, auditable, and isolated from raw card data."],
+    ["Orders and tracking", "Customers can view order history, track fulfillment, and receive clear cancellation, return, and refund states."],
+    ["Reviews and trust", "Verified customers can submit moderated ratings and reviews while abuse controls protect product trust."],
+    ["Admin operations", "Authorized administrators can manage products, categories, users, inventory, orders, promotions, and review moderation."],
+    ["Security and audit", "Server-side authorization, validated contracts, rate limits, redacted logs, and audit evidence protect consequential actions."],
+    ["Experience and quality", "The storefront is responsive, accessible, performant, animated progressively, and covered by automated acceptance checks."],
+  ] : [
     ["Authentication", "Users can sign in and sign out through a secure session boundary."],
-    ["Authorization", `Server-side role checks protect ${uniqueEntities.join(", ")}.`],
-    ["Core workflow", `Authorized users can create, view, update, and safely archive ${uniqueEntities.filter((entity) => entity !== "User").join(", ") || "domain records"}.`],
+    ["Authorization", `Server-side role checks protect ${entities.join(", ")}.`],
+    ["Core workflow", `Authorized users can create, view, update, and safely archive ${entities.filter((entity) => entity !== "User").join(", ") || "domain records"}.`],
     ["Validation", "Invalid and unauthorized input fails closed with a useful error."],
     ["Auditability", "Consequential operations retain requirement and actor traceability."],
     ["Quality", "The application includes responsive behavior and automated acceptance checks."],
-  ].map(([title, description], index) => ({
+  ];
+  const requirements: Requirement[] = requirementDefinitions.map(([title, description], index) => ({
     id: `REQ-${String(index + 1).padStart(3, "0")}`,
     title,
     description,
@@ -230,22 +239,26 @@ function compileSpecification(projectId: string, prompt: string): MasterSpecific
     version: 1,
     status: "proposed",
     prompt,
+    productKind,
     productName: name,
-    summary: `A secure ${name.toLowerCase()} with explicit roles, typed domain boundaries, validation, tests, and traceability.`,
+    summary: productKind === "commerce"
+      ? "A premium full-stack commerce experience with fast product discovery, trusted checkout, customer accounts, order tracking, and secure admin operations."
+      : `A secure ${name.toLowerCase()} with explicit roles, typed domain boundaries, validation, tests, and traceability.`,
     roles,
-    entities: uniqueEntities,
+    entities,
     requirements,
     assumptions: [
       "The first generated stack is TypeScript and uses server-side authorization.",
       "Destructive domain actions use archive semantics unless the specification explicitly requires deletion.",
       "External integrations remain proposals until their credentials and terms are approved.",
     ],
-    architecture: createArchitecture(name, prompt, roles, uniqueEntities, requirements),
+    architecture: createArchitecture(name, prompt, productKind, roles, entities, requirements),
+    generator: { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: "Local deterministic architecture used because no external generation provider is configured." },
     createdAt: now(),
   };
 }
 
-function generateFiles(specification: MasterSpecification): GeneratedFile[] {
+export function generateDeterministicFiles(specification: MasterSpecification): GeneratedFile[] {
   const requirementIds = specification.requirements.map((requirement) => requirement.id);
   const entityUnion = specification.entities.map((entity) => JSON.stringify(entity)).join(" | ");
   const roleUnion = specification.roles.map((role) => JSON.stringify(role)).join(" | ");
@@ -260,6 +273,24 @@ function generateFiles(specification: MasterSpecification): GeneratedFile[] {
     dependencies: { animejs: "^4.5.0", gsap: "^3.15.0", react: "^19.2.0", "react-dom": "^19.2.0" },
     devDependencies: { "@vitejs/plugin-react": "^6.0.0", typescript: "^7.0.0", vite: "^8.0.0" },
   };
+  const backendContracts = specification.productKind === "commerce" ? [
+    'import type { DomainEntity } from "../domain/model.js";',
+    "export type ProductSearchInput = { query?: string; categoryId?: string; minPrice?: number; maxPrice?: number; rating?: number; sort?: \"relevance\" | \"price-asc\" | \"price-desc\" | \"rating\"; cursor?: string };",
+    "export type CartItemInput = { productId: string; variantId?: string; quantity: number };",
+    "export type CheckoutInput = { cartId: string; addressId: string; deliveryOptionId: string; promotionCode?: string; idempotencyKey: string };",
+    "export type PaymentWebhookEnvelope = { provider: string; signature: string; eventId: string; payload: unknown };",
+    "export type ReviewInput = { productId: string; orderItemId: string; rating: 1 | 2 | 3 | 4 | 5; title: string; body: string };",
+    "export type AdminInventoryInput = { productId: string; available: number; reserved: number; reason: string };",
+    "export type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };",
+    "export type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };",
+    "",
+  ].join("\n") : 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n';
+  const backendIndex = specification.productKind === "commerce" ? [
+    `export const service = { name: ${productLiteral}, status: "ready", apiVersion: "v1" } as const;`,
+    "export const routes = { catalog: \"GET /v1/products\", product: \"GET /v1/products/:id\", cart: \"PUT /v1/cart/items\", wishlist: \"PUT /v1/wishlist/items\", checkout: \"POST /v1/checkout\", paymentWebhook: \"POST /v1/payments/webhook\", orders: \"GET /v1/orders\", reviews: \"POST /v1/reviews\", adminInventory: \"PATCH /v1/admin/inventory/:productId\" } as const;",
+    "export const guarantees = { serverAuthoritativePricing: true, idempotentCheckout: true, signedPaymentWebhooks: true, inventoryReservation: true } as const;",
+    "",
+  ].join("\n") : `export const service = { name: ${productLiteral}, status: "ready", apiVersion: "v1" } as const;\n`;
   const templates = [
     { path: "README.md", requirements: requirementIds, content: "# " + specification.productName + "\n\n" + specification.summary + "\n\nGenerated only after confirmation of specification " + specification.id + ".\n" },
     { path: "ARCHITECTURE.md", requirements: requirementIds, content: specification.architecture.markdown },
@@ -270,8 +301,8 @@ function generateFiles(specification: MasterSpecification): GeneratedFile[] {
     { path: "frontend/preview.html", requirements: ["REQ-003", "REQ-006"], content: frontend.preview },
     { path: "backend/src/domain/model.ts", requirements: ["REQ-003", "REQ-004"], content: "export type DomainEntity = " + entityUnion + ";\nexport type Role = " + roleUnion + ";\nexport type DomainRecord = { id: string; entity: DomainEntity; ownerId: string; archivedAt?: string; createdAt: string; updatedAt: string };\n" },
     { path: "backend/src/security/access-control.ts", requirements: ["REQ-001", "REQ-002", "REQ-004"], content: 'import type { DomainRecord, Role } from "../domain/model.js";\nexport function canAccess(role: Role, userId: string, record: DomainRecord): boolean { return role === "Owner" || (record.ownerId === userId && !record.archivedAt); }\nexport function requireAccess(allowed: boolean): asserts allowed { if (!allowed) throw new Error("FORBIDDEN"); }\n' },
-    { path: "backend/src/api/contracts.ts", requirements: ["REQ-003", "REQ-004", "REQ-005"], content: 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n' },
-    { path: "backend/src/index.ts", requirements: ["REQ-001", "REQ-002", "REQ-003"], content: 'export const service = { name: ' + productLiteral + ', status: "ready", apiVersion: "v1" } as const;\n' },
+    { path: "backend/src/api/contracts.ts", requirements: requirementIds, content: backendContracts },
+    { path: "backend/src/index.ts", requirements: requirementIds, content: backendIndex },
     { path: "tests/acceptance.test.ts", requirements: requirementIds, content: 'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("approved architecture keeps requirement coverage", () => { assert.equal(' + JSON.stringify(requirementIds) + ".length, " + requirementIds.length + "); });\n" },
   ];
   return templates.map((template) => ({
@@ -302,7 +333,7 @@ function validate(specification: MasterSpecification, files: GeneratedFile[], fi
     { id: id("check"), name: "Architecture contract", status: paths.has("ARCHITECTURE.md") ? "passed" : "failed", evidence: "The approved architecture is preserved beside generated source." },
     { id: id("check"), name: "Required secure boundary", status: paths.has("backend/src/security/access-control.ts") ? "passed" : "failed", evidence: "Server-side access-control artifact is present." },
     { id: id("check"), name: "Customer frontend", status: paths.has("frontend/src/App.tsx") && paths.has("frontend/src/styles.css") ? "passed" : "failed", evidence: "Responsive React application and design system are present." },
-    { id: id("check"), name: "Professional preview artifact", status: files.find((file) => file.path === "frontend/preview.html")?.content.includes(GENERATED_FRONTEND_TEMPLATE) ? "passed" : "failed", evidence: "A stored, sandbox-renderable professional application preview is present." },
+    { id: id("check"), name: "Professional preview artifact", status: hasGeneratedFrontendMarker(files.find((file) => file.path === "frontend/preview.html")?.content ?? "") ? "passed" : "failed", evidence: "A stored, sandbox-renderable professional application preview is present." },
     { id: id("check"), name: "Customer backend", status: paths.has("backend/src/index.ts") && paths.has("backend/src/api/contracts.ts") ? "passed" : "failed", evidence: "Typed backend entrypoint and API contracts are present." },
     { id: id("check"), name: "Acceptance tests", status: paths.has("tests/acceptance.test.ts") ? "passed" : "failed", evidence: "Generated acceptance-test artifact is present." },
     { id: id("check"), name: "Requirement traceability", status: specification.requirements.every((requirement) => traced.has(requirement.id)) ? "passed" : "failed", evidence: `${traced.size}/${specification.requirements.length} requirement identifiers mapped.` },
@@ -349,11 +380,13 @@ export class BuildWorkflow {
   private running = new Set<string>();
   private readonly store: JsonStore;
   private readonly stageDelayMs: number;
+  private readonly generationProvider?: ApplicationGenerationProvider;
   readonly workspace: ProjectWorkspaceService;
 
-  constructor(store: JsonStore, stageDelayMs = 180) {
+  constructor(store: JsonStore, stageDelayMs = 180, generationProvider?: ApplicationGenerationProvider) {
     this.store = store;
     this.stageDelayMs = stageDelayMs;
+    this.generationProvider = generationProvider;
     this.workspace = new ProjectWorkspaceService(store);
   }
 
@@ -362,7 +395,7 @@ export class BuildWorkflow {
     const timestamp = now();
     const projectId = id("project");
     const buildId = id("build");
-    const name = productName(prompt);
+    const name = inferProductName(prompt);
     const project: Project = {
       id: projectId,
       slug: `${slugify(name)}-${projectId.slice(-5)}`,
@@ -424,6 +457,12 @@ export class BuildWorkflow {
     return Object.values(this.store.read().projects).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  generationStatus(): { mode: "gemini" | "deterministic"; provider: string; model: string; configured: boolean } {
+    return this.generationProvider
+      ? { mode: "gemini", provider: this.generationProvider.id, model: this.generationProvider.model, configured: true }
+      : { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", configured: false };
+  }
+
   async prepare(buildId: string, prompt?: string): Promise<void> {
     const runKey = `prepare:${buildId}`;
     if (this.running.has(runKey)) return;
@@ -434,13 +473,28 @@ export class BuildWorkflow {
       if (!sourcePrompt) throw new ApiError(500, "MISSING_PROMPT", "Build cannot resume without a prompt.");
 
       await this.stage(buildId, "specifying", "Turning the idea into a proposed, versioned master specification.");
-      const specification = compileSpecification(initial.projectId, sourcePrompt);
+      const fallbackSpecification = compileSpecification(initial.projectId, sourcePrompt);
+      let specification = fallbackSpecification;
+      if (this.generationProvider) {
+        try {
+          const providerPlan = await this.generationProvider.plan(sourcePrompt, fallbackSpecification);
+          specification = applyProviderPlan(fallbackSpecification, providerPlan, this.generationProvider.model);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "Gemini planning failed validation.";
+          specification = {
+            ...fallbackSpecification,
+            generator: { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `Gemini planning fallback: ${reason}` },
+          };
+        }
+      }
       await this.store.mutate((database) => {
         database.specifications[specification.id] = specification;
         const build = database.builds[buildId];
         build.specificationId = specification.id;
         build.stageDetail = `${specification.requirements.length} proposed requirements mapped across ${specification.entities.length} domain entities.`;
         const project = database.projects[build.projectId];
+        project.name = specification.productName;
+        project.slug = `${slugify(specification.productName)}-${project.id.slice(-5)}`;
         project.currentSpecificationId = specification.id;
         project.updatedAt = now();
       });
@@ -514,8 +568,20 @@ export class BuildWorkflow {
       const tasks = initial.taskIds.map((taskId) => database.tasks[taskId]).filter((task): task is AgentTask => Boolean(task));
       if (tasks.length === 0) throw new ApiError(500, "TASK_PLAN_INVALID", "Approved task plan is missing.");
 
-      await this.stage(buildId, "generating", "Generating a minimal secure application skeleton in an isolated manifest.");
-      const files = generateFiles(specification);
+      await this.stage(buildId, "generating", specification.generator?.mode === "gemini"
+        ? `Gemini ${specification.generator.model} is generating a prompt-specific modular application manifest.`
+        : "Generating a secure responsive application with the deterministic local fallback.");
+      let files = generateDeterministicFiles(specification);
+      if (this.generationProvider && specification.generator?.mode === "gemini") {
+        try {
+          files = await this.generationProvider.generate(specification);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "Gemini implementation failed validation.";
+          specification.generator = { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `Gemini implementation fallback: ${reason}` };
+          await this.store.mutate((database) => { database.specifications[specification.id] = specification; });
+          files = generateDeterministicFiles(specification);
+        }
+      }
       const implementationTask = tasks.find((task) => task.role === "implementation");
       if (!implementationTask) throw new ApiError(500, "TASK_PLAN_INVALID", "Implementation task is missing.");
       enforceImplementationTask(implementationTask, files);

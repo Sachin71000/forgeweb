@@ -7,7 +7,7 @@ import type {
   ProjectWorkspace,
   ValidationCheck,
 } from "./domain.ts";
-import { buildGeneratedFrontend, GENERATED_FRONTEND_TEMPLATE, normalizeMasterSpecification } from "./generated-frontend.ts";
+import { buildGeneratedFrontend, expectedFrontendTemplate, hasGeneratedFrontendMarker, normalizeMasterSpecification } from "./generated-frontend.ts";
 import { ApiError, assertPrompt, digest, id, now, safePath, slugify } from "./lib.ts";
 import { JsonStore } from "./store.ts";
 import { createProjectZip } from "./zip.ts";
@@ -45,7 +45,7 @@ function validateStoredProject(files: GeneratedFile[]): ValidationCheck[] {
     ["Package configuration", byPath.has("package.json"), "package.json is present."],
     ["Frontend source", app.includes("export default function App") && byPath.has("frontend/src/main.tsx"), "React entrypoint and App component are present."],
     ["Frontend styles", Boolean(css) && openBraces === closeBraces, `${openBraces} opening and ${closeBraces} closing CSS braces.`],
-    ["Professional preview source", preview.startsWith("<!doctype html>") && preview.includes("</html>") && preview.includes(GENERATED_FRONTEND_TEMPLATE) && preview.includes('aria-label="Primary navigation"'), "Stored preview is a complete professional application document with primary navigation."],
+    ["Professional preview source", preview.startsWith("<!doctype html>") && preview.includes("</html>") && hasGeneratedFrontendMarker(preview) && preview.includes("<header"), "Stored preview is a complete professional application document with responsive navigation."],
     ["Backend source", byPath.has("backend/src/index.ts") && byPath.has("backend/src/api/contracts.ts"), "Typed backend entrypoint and contracts are present."],
     ["Security boundary", byPath.has("backend/src/security/access-control.ts"), "Server access-control source is present."],
     ["Architecture", byPath.has("ARCHITECTURE.md"), "Architecture contract is present."],
@@ -144,12 +144,14 @@ function professionalizeFrontend(sourceFiles: GeneratedFile[], specification: Ma
   return { files, modifiedFiles: [...modifiedFiles] };
 }
 
-function hasProfessionalFrontend(files: GeneratedFile[]): boolean {
+function hasExpectedFrontend(files: GeneratedFile[], specification?: MasterSpecification): boolean {
   const paths = new Set(files.map((file) => file.path));
   const requiredPaths = ["ARCHITECTURE.md", "frontend/src/App.tsx", "frontend/src/styles.css", "frontend/src/main.tsx", "frontend/preview.html", "backend/src/index.ts", "backend/src/domain/model.ts", "backend/src/security/access-control.ts", "backend/src/api/contracts.ts"];
+  if (!specification) return false;
+  const template = expectedFrontendTemplate(specification);
   return requiredPaths.every((path) => paths.has(path))
-    && files.find((file) => file.path === "frontend/preview.html")?.content.includes(GENERATED_FRONTEND_TEMPLATE) === true
-    && files.find((file) => file.path === "frontend/src/App.tsx")?.content.includes(GENERATED_FRONTEND_TEMPLATE) === true;
+    && files.find((file) => file.path === "frontend/preview.html")?.content.includes(template) === true
+    && files.find((file) => file.path === "frontend/src/App.tsx")?.content.includes(template) === true;
 }
 
 function cssEdit(prompt: string): string {
@@ -237,7 +239,7 @@ export class ProjectWorkspaceService {
 
   private async performProfessionalFrontendUpgrade(projectId: string): Promise<void> {
     const workspace = this.get(projectId);
-    if (hasProfessionalFrontend(workspace.files) && workspace.specification?.architecture) return;
+    if (hasExpectedFrontend(workspace.files, workspace.specification) && workspace.specification?.architecture) return;
     if (!workspace.specification || workspace.files.length === 0 || !workspace.project.currentBuildId) return;
     const specification = normalizeMasterSpecification(workspace.specification);
     const candidate = professionalizeFrontend(workspace.files, specification);
@@ -246,6 +248,10 @@ export class ProjectWorkspaceService {
     await this.store.mutate((database) => {
       const project = database.projects[projectId];
       database.specifications[specification.id] = specification;
+      if (project.name !== specification.productName) {
+        project.name = specification.productName;
+        project.slug = `${slugify(specification.productName)}-${project.id.slice(-6)}`;
+      }
       const versions = Object.values(database.versions).filter((version) => version.projectId === projectId);
       const versionNumber = Math.max(0, ...versions.map((version) => version.versionNumber)) + 1;
       const versionId = id("version");

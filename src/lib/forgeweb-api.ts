@@ -11,8 +11,8 @@ export type BuildCapability = {
 
 export type ArchitecturePlan = {
   systemShape: string;
-  frontend: { framework: string; pages: string[]; components: string[]; motion: string[] };
-  backend: { runtime: string; modules: string[]; apiStyle: string; jobs: string[] };
+  frontend: { framework: string; pages: string[]; components: string[]; motion: string[]; visualDirection?: string };
+  backend: { runtime: string; modules: string[]; apiStyle: string; jobs: string[]; routes?: string[] };
   data: { database: string; entities: string[]; rules: string[] };
   security: string[];
   delivery: string[];
@@ -86,6 +86,7 @@ export type BuildResponse = {
   specification?: {
     id: string;
     status: "proposed" | "approved";
+    productKind: "commerce" | "inventory" | "scheduler" | "portal" | "generic";
     productName: string;
     summary: string;
     roles: string[];
@@ -93,6 +94,7 @@ export type BuildResponse = {
     assumptions: string[];
     requirements: Array<{ id: string; title: string; description: string; acceptanceCriteria: string[]; priority: string }>;
     architecture: ArchitecturePlan;
+    generator?: { mode: "gemini" | "deterministic"; provider: "google-gemini" | "forgeweb-local"; model: string; message: string };
   };
   filePaths: string[];
   validationChecks: Array<{ id: string; name: string; status: "passed" | "failed"; evidence: string }>;

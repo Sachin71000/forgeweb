@@ -158,6 +158,28 @@ function Hero() {
     setStatusDetail(savedBuild.status === "completed" ? `Saved project opened — ${savedBuild.stageDetail}` : visibleBuildDetail(savedBuild));
   };
 
+  const startNewChat = () => {
+    setPrompt("");
+    setBuild(null);
+    setStage(-1);
+    setRunning(false);
+    setStatusDetail("New project — describe the customer application you want ForgeWeb to generate.");
+    window.setTimeout(() => {
+      const composer = document.querySelector<HTMLTextAreaElement>("#product-prompt");
+      composer?.scrollIntoView({ behavior: "smooth", block: "center" });
+      composer?.focus();
+    }, 80);
+  };
+
+  const editPromptFromProposal = () => {
+    const composer = document.querySelector<HTMLTextAreaElement>("#product-prompt");
+    composer?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      composer?.focus();
+      composer?.setSelectionRange(composer.value.length, composer.value.length);
+    }, 350);
+  };
+
   return (
     <section id="top" className="hero-immersive">
       <div className="hero-waves-overlay" aria-hidden="true" />
@@ -172,6 +194,7 @@ function Hero() {
           { label: "APIs", href: "#integrations" },
         ]}
       />
+      <ProjectLibrary activeProjectId={build?.projectId} refreshToken={projectRefreshToken} onOpen={openSavedProject} onNewChat={startNewChat} />
       <div className="hero-sigil-wrap" aria-hidden="true"><MorphingSigil /></div>
       <div className="hero-content relative z-10 mx-auto flex w-full max-w-[1180px] items-center justify-center px-5 pb-24 pt-32 sm:px-8 sm:pt-36 lg:px-12">
         <div className="hero-center w-full text-center">
@@ -255,8 +278,7 @@ function Hero() {
             <span className="flex items-center gap-1.5"><GitBranch className="size-3.5" /> Git-native history</span>
             <span className="flex items-center gap-1.5"><KeyRound className="size-3.5" /> Managed or BYOK</span>
           </div>
-          <ProjectLibrary activeProjectId={build?.projectId} refreshToken={projectRefreshToken} onOpen={openSavedProject} />
-          <BuildProposal build={build} busy={running} onConfirm={confirmProposal} onProjectUpdated={() => setProjectRefreshToken((value) => value + 1)} />
+          <BuildProposal build={build} busy={running} onConfirm={confirmProposal} onEditPrompt={editPromptFromProposal} onProjectUpdated={() => setProjectRefreshToken((value) => value + 1)} />
         </div>
       </div>
       <div className="hero-scroll-cue"><span>SCROLL TO TRACE THE SYSTEM</span><i /></div>

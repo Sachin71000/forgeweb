@@ -49,7 +49,7 @@ export function createTasks(buildId: string, specification: MasterSpecification)
       objective: "Generate the smallest secure application skeleton satisfying the approved requirements.",
       allowedPaths: ["README.md", "ARCHITECTURE.md", "package.json", "frontend/", "backend/", "tests/"],
       simplestSufficientApproach: "Generate a prompt-specific React frontend, typed backend boundaries, access control, architecture, and acceptance tests without speculative services.",
-      changeBudget: { maxFiles: 12, maxAddedLines: 1_200, maxDeletedLines: 0 },
+      changeBudget: { maxFiles: 32, maxAddedLines: 12_000, maxDeletedLines: 0 },
       acceptanceCriteria: ["All files map to requirements.", "No generated path escapes the project.", "No unapproved dependency is introduced."],
       validationPlan: ["Verify paths and digests.", "Check requirement traceability."],
     },

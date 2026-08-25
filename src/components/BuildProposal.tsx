@@ -1,4 +1,4 @@
-import { ArrowRight, Boxes, Check, Code2, Database, ExternalLink, FileCode2, Server, ShieldCheck } from "lucide-react";
+import { ArrowRight, Boxes, Check, Code2, Cpu, Database, ExternalLink, FileCode2, PencilLine, Server, ShieldCheck } from "lucide-react";
 import { motion } from "motion/react";
 import type { BuildResponse } from "../lib/forgeweb-api";
 import ProjectWorkspace from "./ProjectWorkspace";
@@ -7,10 +7,11 @@ type BuildProposalProps = {
   build: BuildResponse | null;
   busy: boolean;
   onConfirm: () => void;
+  onEditPrompt: () => void;
   onProjectUpdated?: () => void;
 };
 
-export default function BuildProposal({ build, busy, onConfirm, onProjectUpdated }: BuildProposalProps) {
+export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, onProjectUpdated }: BuildProposalProps) {
   const specification = build?.specification;
   if (!build || !specification || build.status === "queued" || build.status === "specifying" || build.status === "planning") return null;
 
@@ -30,7 +31,8 @@ export default function BuildProposal({ build, busy, onConfirm, onProjectUpdated
         <div>
           <p className="build-proposal-kicker"><span /> {awaiting ? "Approval required" : complete ? "Verified build" : "Generation in progress"}</p>
           <h2>{specification.productName}</h2>
-          <p>{specification.summary}</p>
+          <p className="build-proposal-summary">{specification.summary}</p>
+          {specification.generator && <p className={`build-generator-source is-${specification.generator.mode}`}><Cpu /> {specification.generator.mode === "gemini" ? `Gemini · ${specification.generator.model}` : "Local fallback"}<span>{specification.generator.message}</span></p>}
         </div>
         <div className={`build-proposal-state ${complete ? "is-complete" : ""}`}>
           {complete ? <Check /> : <Boxes />}
@@ -83,9 +85,10 @@ export default function BuildProposal({ build, busy, onConfirm, onProjectUpdated
       {awaiting && (
         <div className="build-confirmation-gate">
           <div><strong>Ready for your decision</strong><p>Confirming freezes this specification, then starts frontend and backend generation.</p></div>
-          <button type="button" className="button button-acid" onClick={onConfirm} disabled={busy}>
-            {busy ? "Starting build…" : "Confirm requirements & generate"}<ArrowRight />
-          </button>
+          <div className="build-confirmation-actions">
+            <button type="button" className="button workspace-button" onClick={onEditPrompt} disabled={busy}><PencilLine /> Edit prompt</button>
+            <button type="button" className="button button-acid" onClick={onConfirm} disabled={busy}>{busy ? "Starting build…" : "Confirm requirements & generate"}<ArrowRight /></button>
+          </div>
         </div>
       )}
 

@@ -1,14 +1,49 @@
 import type { MasterSpecification } from "./domain.ts";
+import { buildCommerceFrontend, GENERATED_COMMERCE_TEMPLATE } from "./generated-commerce.ts";
+import { detectProductKind, inferDomainEntities, inferProductName } from "./product-intent.ts";
 
 export const GENERATED_FRONTEND_TEMPLATE = "forgeweb-professional-v2";
+export const GENERATED_AI_TEMPLATE = "forgeweb-ai-generated-v1";
+
+export function expectedFrontendTemplate(specification: MasterSpecification): string {
+  if (specification.generator?.mode === "gemini") return GENERATED_AI_TEMPLATE;
+  return (specification.productKind ?? detectProductKind(specification.prompt)) === "commerce" ? GENERATED_COMMERCE_TEMPLATE : GENERATED_FRONTEND_TEMPLATE;
+}
+
+export function hasGeneratedFrontendMarker(content: string): boolean {
+  return content.includes(GENERATED_FRONTEND_TEMPLATE) || content.includes(GENERATED_COMMERCE_TEMPLATE) || content.includes(GENERATED_AI_TEMPLATE);
+}
 
 export function normalizeMasterSpecification(specification: MasterSpecification): MasterSpecification {
-  if (specification.architecture) return specification;
-  const domainEntities = specification.entities.filter((entity) => entity !== "User");
+  const productKind = specification.productKind ?? detectProductKind(specification.prompt);
+  const inferredName = inferProductName(specification.prompt, productKind);
+  const productName = productKind === "commerce" && /^(modern|responsive|secure|professional|clean|premium|application)$/i.test(specification.productName.trim())
+    ? inferredName
+    : specification.productName;
+  const entities = productKind === "commerce" ? inferDomainEntities(specification.prompt, productKind) : specification.entities;
+  const hasPromptSpecificCommerceArchitecture = specification.architecture?.frontend.pages.some((page) => /storefront|catalog|product details|checkout|order tracking|admin/i.test(page));
+  if (specification.architecture && (productKind !== "commerce" || hasPromptSpecificCommerceArchitecture)) {
+    return specification.productKind && productName === specification.productName
+      ? specification
+      : { ...specification, productKind, productName, entities };
+  }
+  const domainEntities = entities.filter((entity) => entity !== "User");
+  const commercePages = [
+    "Premium storefront home",
+    "Category, search, and filtered product results",
+    "Product details, variants, ratings, and reviews",
+    "Shopping cart and wishlist",
+    "Secure checkout and payment",
+    "Order tracking and customer profile",
+    "Admin products, users, inventory, and orders",
+  ];
   const pages = ["Secure sign-in", "Role-aware dashboard", ...domainEntities.slice(0, 3).map((entity) => `${entity} workspace`), "Activity and audit history", "Settings and access management"];
-  const diagram = "flowchart LR\n  Browser[React customer app] --> API[Typed backend API]\n  API --> Auth[Session and role policy]\n  API --> Domain[Domain modules]\n  Domain --> DB[PostgreSQL]";
+  const configuredPages = productKind === "commerce" ? commercePages : pages;
+  const diagram = productKind === "commerce"
+    ? "flowchart LR\n  Shopper[Responsive commerce UI] --> API[Secure commerce API]\n  API --> Catalog[Catalog and search]\n  API --> Checkout[Cart and checkout]\n  Checkout --> Payment[Payment provider]\n  API --> Orders[Orders and tracking]\n  Catalog --> DB[(PostgreSQL)]\n  Orders --> DB\n  Admin[Admin dashboard] --> API"
+    : "flowchart LR\n  Browser[React customer app] --> API[Typed backend API]\n  API --> Auth[Session and role policy]\n  API --> Domain[Domain modules]\n  Domain --> DB[PostgreSQL]";
   const markdown = [
-    `# ${specification.productName} Architecture`,
+    `# ${productName} Architecture`,
     "",
     "## System shape",
     "",
@@ -19,7 +54,7 @@ export function normalizeMasterSpecification(specification: MasterSpecification)
     "",
     "## Frontend",
     "",
-    ...pages.map((page) => `- ${page}`),
+    ...configuredPages.map((page) => `- ${page}`),
     "",
     "## Security",
     "",
@@ -29,22 +64,26 @@ export function normalizeMasterSpecification(specification: MasterSpecification)
     "",
   ].join("\n");
   const architecture: MasterSpecification["architecture"] = {
-    systemShape: "Modular TypeScript application with a professional React client, typed backend, relational data, and versioned evidence.",
+    systemShape: productKind === "commerce"
+      ? "Modular commerce platform with a responsive React storefront, secure typed APIs, payment boundary, relational catalog and order data, and an administrative control surface."
+      : "Modular TypeScript application with a professional React client, typed backend, relational data, and versioned evidence.",
     frontend: {
       framework: "React 19 and TypeScript",
-      pages,
-      components: ["Responsive application shell", "Primary navigation", "Metric and records surfaces", "Activity timeline", "Accessible forms and states"],
+      pages: configuredPages,
+      components: productKind === "commerce"
+        ? ["Marketplace header and global search", "Category navigation", "Product and promotion cards", "Cart and wishlist controls", "Checkout progress", "Order timeline", "Customer profile", "Admin data grids"]
+        : ["Responsive application shell", "Primary navigation", "Metric and records surfaces", "Activity timeline", "Accessible forms and states"],
       motion: ["GSAP entrance choreography", "Anime.js micro-interactions", "Reduced-motion alternatives"],
     },
     backend: {
       runtime: "Node.js and TypeScript",
-      modules: ["Identity", "Authorization", ...specification.entities, "Audit", "Validation"],
+      modules: ["Identity", "Authorization", ...entities, "Audit", "Validation"],
       apiStyle: "Versioned JSON HTTP contracts with server-side validation",
       jobs: ["Long-running generation", "Notifications and integrations", "Evidence synchronization"],
     },
     data: {
       database: "PostgreSQL",
-      entities: specification.entities,
+      entities,
       rules: ["Every mutable record has an ownership boundary", "Archive before destructive deletion", "Migrations are versioned"],
     },
     security: ["Secure session boundary", "Server-side role and ownership checks", "Validated contracts", "Secret isolation"],
@@ -59,7 +98,7 @@ export function normalizeMasterSpecification(specification: MasterSpecification)
       { id: "react-bits", name: "React Bits", kind: "component-source", sourceUrl: "https://reactbits.dev/", usage: "Reviewed visual-pattern reference.", boundary: "No blind runtime component ingestion." },
     ],
   };
-  return { ...specification, architecture };
+  return { ...specification, productKind, productName, entities, architecture };
 }
 
 function escapeHtml(value: string): string {
@@ -115,6 +154,7 @@ function model(specification: MasterSpecification) {
 
 export function buildGeneratedFrontend(specification: MasterSpecification): { app: string; styles: string; preview: string } {
   specification = normalizeMasterSpecification(specification);
+  if (specification.productKind === "commerce") return buildCommerceFrontend(specification);
   const view = model(specification);
   const productLiteral = JSON.stringify(specification.productName);
   const summaryLiteral = JSON.stringify(specification.summary);

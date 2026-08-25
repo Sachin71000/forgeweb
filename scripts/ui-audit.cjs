@@ -1,6 +1,7 @@
 const { chromium } = require(
   "C:/Users/sachi/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright",
 );
+const { execFileSync } = require("node:child_process");
 
 const viewports = [
   { name: "phone-320", width: 320, height: 568 },
@@ -172,6 +173,14 @@ async function auditViewport(browser, viewport) {
   }
 
   if (viewport.name === "phone-390") {
+    await page.getByRole("button", { name: /My Projects/ }).click();
+    const historyDrawer = page.locator("#project-history-drawer");
+    await historyDrawer.waitFor({ state: "visible", timeout: 3000 });
+    if (!(await historyDrawer.getByRole("button", { name: "New chat" }).isVisible())) metrics.failures.push("project history drawer is missing New chat");
+    if (!(await historyDrawer.getByText("History", { exact: true }).isVisible())) metrics.failures.push("project history drawer is missing history navigation");
+    await historyDrawer.getByRole("button", { name: "Close projects" }).click();
+    await historyDrawer.waitFor({ state: "hidden", timeout: 1000 });
+
     await page.getByRole("button", { name: "Inventory OS" }).click();
     const prompt = await page.locator("#product-prompt").inputValue();
     if (!prompt.includes("inventory os")) metrics.failures.push("quick prompt did not update the composer");
@@ -186,6 +195,10 @@ async function auditViewport(browser, viewport) {
     if ((await page.locator(".build-capabilities a").count()) !== 5) metrics.failures.push("customer-app capability registry is incomplete");
     if (!(await page.locator(".architecture-file").textContent()).includes("ARCHITECTURE.md")) metrics.failures.push("architecture file is not visible");
     if ((await page.locator(".generated-artifacts").count()) !== 0) metrics.failures.push("source artifacts appeared before confirmation");
+    await page.getByRole("button", { name: "Edit prompt" }).click();
+    await page.waitForTimeout(450);
+    const activePromptId = await page.evaluate(() => document.activeElement?.id);
+    if (activePromptId !== "product-prompt") metrics.failures.push("Edit prompt did not return focus to the prompt composer");
     await page.getByRole("button", { name: /Confirm requirements & generate/i }).click();
     await page.locator(".generated-artifacts").waitFor({ state: "visible", timeout: 5000 });
     await page.waitForFunction(() => document.querySelector(".hero-build-status")?.textContent?.includes("Validated"), null, { timeout: 5000 });
@@ -243,16 +256,16 @@ async function auditViewport(browser, viewport) {
 
     await page.reload({ waitUntil: "networkidle" });
     await page.getByRole("button", { name: /My Projects/ }).click();
-    const persistedProject = page.locator(".project-library-list article").filter({ hasText: projectId });
+    const persistedProject = page.locator(".project-library-list article").first();
     await persistedProject.waitFor({ state: "visible", timeout: 5000 });
-    await persistedProject.getByRole("button", { name: "Open" }).click();
+    await persistedProject.getByRole("button").click();
     await page.locator(".project-workspace").waitFor({ state: "visible", timeout: 5000 });
     await page.waitForFunction(() => document.querySelector(".workspace-tabs")?.textContent?.includes("Version 1"), null, { timeout: 5000 });
     if (!(await page.locator(".workspace-tabs").textContent()).includes("Version 1")) metrics.failures.push("reopened project did not retain the restored version");
 
-    for (const expectedFailure of [/\/preview\?.*net::ERR_ABORTED/, /status of 422 \(Unprocessable Entity\)/]) {
-      const index = runtimeFailures.findIndex((failure) => expectedFailure.test(failure));
-      if (index >= 0) runtimeFailures.splice(index, 1);
+    const expectedFailures = [/\/preview\?.*net::ERR_ABORTED/, /status of 422 \(Unprocessable Entity\)/];
+    for (let index = runtimeFailures.length - 1; index >= 0; index -= 1) {
+      if (expectedFailures.some((expectedFailure) => expectedFailure.test(runtimeFailures[index]))) runtimeFailures.splice(index, 1);
     }
   }
 
@@ -353,6 +366,71 @@ async function auditGeneratedPreview(browser, projectId) {
   };
 }
 
+async function auditCommercePreview(browser) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const runtimeFailures = recordRuntimeFailures(page);
+  const fixture = JSON.parse(execFileSync(process.execPath, ["--experimental-strip-types", "scripts/commerce-preview-fixture.ts"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 5 * 1024 * 1024,
+  }));
+  const proposal = fixture.proposal;
+  const failures = [];
+  if (proposal.status !== "awaiting_confirmation") failures.push(`commerce proposal ended in ${proposal.status}`);
+  if (proposal.specification?.productKind !== "commerce") failures.push("commerce prompt was not classified as commerce");
+  if (proposal.specification?.productName !== "Nexa Market") failures.push(`commerce project was named ${proposal.specification?.productName || "nothing"}`);
+  if (proposal.specification?.requirements?.length !== 11) failures.push("commerce architecture does not contain eleven product requirements");
+  if (!proposal.specification?.architecture?.frontend?.pages?.some((pageName) => /checkout/i.test(pageName))) failures.push("commerce architecture is missing checkout");
+  if ((proposal.filePaths || []).length !== 0) failures.push("commerce source appeared before architecture confirmation");
+
+  await page.setContent(fixture.preview, { waitUntil: "load" });
+  const desktop = await page.evaluate(() => {
+    const categories = Array.from(document.querySelectorAll(".category-card"), (element) => element.getBoundingClientRect());
+    const products = Array.from(document.querySelectorAll(".product-card"), (element) => element.getBoundingClientRect());
+    const hero = document.querySelector(".commerce-hero")?.getBoundingClientRect();
+    return {
+      template: document.documentElement.dataset.forgewebTemplate,
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      headerVisible: Boolean(document.querySelector(".store-header")?.getBoundingClientRect().height),
+      searchVisible: Boolean(document.querySelector(".global-search")?.getBoundingClientRect().width),
+      customerLinks: document.querySelectorAll(".account-nav a").length,
+      categoryCount: categories.length,
+      categoriesSameRow: categories.length === 6 && Math.max(...categories.map((rect) => rect.top)) - Math.min(...categories.map((rect) => rect.top)) < 2,
+      productCount: products.length,
+      productsSameRow: products.length === 5 && Math.max(...products.map((rect) => rect.top)) - Math.min(...products.map((rect) => rect.top)) < 2,
+      heroInside: Boolean(hero && hero.left >= 0 && hero.right <= innerWidth),
+      hasAdmin: Boolean(document.querySelector(".admin-link")),
+      hasCart: Boolean(document.querySelector('[aria-label="Shopping cart"]')),
+      hasWishlist: Boolean(document.querySelector('[aria-label="Wishlist"]')),
+    };
+  });
+  await page.screenshot({ path: "generated-ecommerce-preview.png", fullPage: false });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(180);
+  const mobile = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    searchVisible: document.querySelector(".global-search")?.getBoundingClientRect().width > 160,
+    categoryColumns: document.querySelector(".category-grid") ? getComputedStyle(document.querySelector(".category-grid")).gridTemplateColumns.split(" ").length : 0,
+    productScrollable: document.querySelector(".product-grid") ? document.querySelector(".product-grid").scrollWidth > document.querySelector(".product-grid").clientWidth : false,
+    cartVisible: document.querySelector('[aria-label="Shopping cart"]') ? getComputedStyle(document.querySelector('[aria-label="Shopping cart"]')).display !== "none" : false,
+  }));
+  await page.close();
+  failures.push(
+    ...(desktop.template !== "forgeweb-commerce-v1" ? ["commerce template marker is missing"] : []),
+    ...(desktop.overflow ? ["commerce preview overflows on desktop"] : []),
+    ...(!desktop.headerVisible || !desktop.searchVisible ? ["commerce header or global search is missing"] : []),
+    ...(desktop.customerLinks !== 4 || !desktop.hasCart || !desktop.hasWishlist ? ["commerce customer navigation is incomplete"] : []),
+    ...(desktop.categoryCount !== 6 || !desktop.categoriesSameRow ? ["commerce category grid is not aligned"] : []),
+    ...(desktop.productCount !== 5 || !desktop.productsSameRow ? ["commerce product grid is not aligned"] : []),
+    ...(!desktop.heroInside || !desktop.hasAdmin ? ["commerce hero or admin entry is missing"] : []),
+    ...(mobile.overflow ? ["commerce preview overflows on mobile"] : []),
+    ...(!mobile.searchVisible || mobile.categoryColumns !== 2 ? ["commerce mobile search or category grid does not adapt"] : []),
+    ...(!mobile.productScrollable || !mobile.cartVisible ? ["commerce mobile products or cart are not usable"] : []),
+    ...runtimeFailures,
+  );
+  return { failures, projectId: fixture.projectId, desktop, mobile };
+}
+
 async function auditKeyboard(browser) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const runtimeFailures = recordRuntimeFailures(page);
@@ -438,9 +516,10 @@ async function run() {
     headless: true,
     executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
   });
-  const results = { viewports: {}, generatedPreview: null, gooeyNav: null, keyboard: null, reducedMotion: null, performance: null };
+  const results = { viewports: {}, generatedPreview: null, commercePreview: null, gooeyNav: null, keyboard: null, reducedMotion: null, performance: null };
   for (const viewport of viewports) results.viewports[viewport.name] = await auditViewport(browser, viewport);
   results.generatedPreview = await auditGeneratedPreview(browser, generatedProjectId);
+  results.commercePreview = await auditCommercePreview(browser);
   results.gooeyNav = await auditGooeyNav(browser);
   results.keyboard = await auditKeyboard(browser);
   results.reducedMotion = await auditReducedMotion(browser);
@@ -450,6 +529,7 @@ async function run() {
   const failures = [
     ...Object.entries(results.viewports).flatMap(([name, result]) => result.failures.map((failure) => `${name}: ${failure}`)),
     ...results.generatedPreview.failures.map((failure) => `generated-preview: ${failure}`),
+    ...results.commercePreview.failures.map((failure) => `commerce-preview: ${failure}`),
     ...results.gooeyNav.failures.map((failure) => `gooey-nav: ${failure}`),
     ...results.keyboard.failures.map((failure) => `keyboard: ${failure}`),
     ...results.reducedMotion.failures.map((failure) => `reduced-motion: ${failure}`),

@@ -21,7 +21,10 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
   try {
     const healthResponse = await fetch(`${baseUrl}/api/health`);
     assert.equal(healthResponse.status, 200);
-    assert.equal((await healthResponse.json() as { status: string }).status, "ok");
+    const health = await healthResponse.json() as { status: string; generation: { mode: string; configured: boolean } };
+    assert.equal(health.status, "ok");
+    assert.equal(health.generation.mode, "deterministic");
+    assert.equal(health.generation.configured, false);
 
     const invalidResponse = await fetch(`${baseUrl}/api/builds`, {
       method: "POST",
