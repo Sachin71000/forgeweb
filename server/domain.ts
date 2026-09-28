@@ -27,7 +27,7 @@ export type Requirement = {
   priority: "P0" | "P1";
 };
 
-export type ProductKind = "commerce" | "inventory" | "scheduler" | "portal" | "generic";
+export type ProductKind = "commerce" | "restaurant" | "inventory" | "scheduler" | "portal" | "generic";
 
 export type BuildCapability = {
   id: "react" | "git" | "gsap" | "animejs" | "react-bits";
@@ -65,8 +65,8 @@ export type MasterSpecification = {
   assumptions: string[];
   architecture: ArchitecturePlan;
   generator?: {
-    mode: "gemini" | "deterministic";
-    provider: "google-gemini" | "forgeweb-local";
+    mode: "ai" | "gemini" | "deterministic";
+    provider: "gemini-python" | "groq-openrouter" | "openrouter" | "groq" | "google-gemini" | "forgeweb-local";
     model: string;
     message: string;
   };

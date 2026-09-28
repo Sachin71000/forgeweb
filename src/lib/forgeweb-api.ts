@@ -86,7 +86,7 @@ export type BuildResponse = {
   specification?: {
     id: string;
     status: "proposed" | "approved";
-    productKind: "commerce" | "inventory" | "scheduler" | "portal" | "generic";
+    productKind: "commerce" | "restaurant" | "inventory" | "scheduler" | "portal" | "generic";
     productName: string;
     summary: string;
     roles: string[];
@@ -94,7 +94,7 @@ export type BuildResponse = {
     assumptions: string[];
     requirements: Array<{ id: string; title: string; description: string; acceptanceCriteria: string[]; priority: string }>;
     architecture: ArchitecturePlan;
-    generator?: { mode: "gemini" | "deterministic"; provider: "google-gemini" | "forgeweb-local"; model: string; message: string };
+    generator?: { mode: "ai" | "gemini" | "deterministic"; provider: "gemini-python" | "groq-openrouter" | "openrouter" | "groq" | "google-gemini" | "forgeweb-local"; model: string; message: string };
   };
   filePaths: string[];
   validationChecks: Array<{ id: string; name: string; status: "passed" | "failed"; evidence: string }>;
@@ -131,6 +131,11 @@ export async function getBuild(buildId: string): Promise<BuildResponse> {
 export async function listProjects(): Promise<ProjectSummary[]> {
   const payload = await request<{ projects: ProjectSummary[] }>("/api/projects");
   return payload.projects;
+}
+
+export async function deleteProject(projectId: string): Promise<{ id: string; name: string }> {
+  const payload = await request<{ deleted: { id: string; name: string } }>(`/api/projects/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+  return payload.deleted;
 }
 
 export async function getProjectWorkspace(projectId: string): Promise<ProjectWorkspace> {

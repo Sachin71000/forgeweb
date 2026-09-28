@@ -15,7 +15,7 @@ const server = createForgeWebServer(workflow);
 server.listen(port, "127.0.0.1", () => {
   console.log(`ForgeWeb control plane listening on http://127.0.0.1:${port}`);
   console.log(`Persistent data: ${dataDirectory}`);
-  console.log(provider ? `Generation provider: Google Gemini (${provider.model})` : "Generation provider: deterministic local fallback");
+  console.log(provider ? `Generation provider: ${provider.id} (${provider.model})` : "Generation provider: deterministic local fallback");
 });
 
 const shutdown = () => server.close(() => process.exit(0));

@@ -18,6 +18,11 @@ export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, on
   const architecture = specification.architecture;
   const awaiting = build.status === "awaiting_confirmation";
   const complete = build.status === "completed";
+  const generatorLabel = specification.generator?.mode === "deterministic"
+    ? "Local fallback"
+    : specification.generator?.provider === "groq-openrouter"
+      ? "Groq plan + OpenRouter build"
+      : `${specification.generator?.provider ?? "AI"} · ${specification.generator?.model ?? "configured model"}`;
 
   return (
     <motion.section
@@ -32,7 +37,7 @@ export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, on
           <p className="build-proposal-kicker"><span /> {awaiting ? "Approval required" : complete ? "Verified build" : "Generation in progress"}</p>
           <h2>{specification.productName}</h2>
           <p className="build-proposal-summary">{specification.summary}</p>
-          {specification.generator && <p className={`build-generator-source is-${specification.generator.mode}`}><Cpu /> {specification.generator.mode === "gemini" ? `Gemini · ${specification.generator.model}` : "Local fallback"}<span>{specification.generator.message}</span></p>}
+          {specification.generator && <p className={`build-generator-source is-${specification.generator.mode}`}><Cpu /> {generatorLabel}<span>{specification.generator.message}</span></p>}
         </div>
         <div className={`build-proposal-state ${complete ? "is-complete" : ""}`}>
           {complete ? <Check /> : <Boxes />}
@@ -92,7 +97,7 @@ export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, on
         </div>
       )}
 
-      {build.filePaths.length > 0 && (
+      {complete && build.filePaths.length > 0 && (
         <div className="generated-artifacts">
           <div className="build-proposal-title"><Code2 /> Generated frontend + backend <span>{build.filePaths.length} files</span></div>
           <ProjectWorkspace projectId={build.projectId} initialFilePaths={build.filePaths} validationCount={build.validationChecks.length} onProjectUpdated={onProjectUpdated} />

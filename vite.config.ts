@@ -49,6 +49,12 @@ export default defineConfig(({ mode }) => ({
               includeDependenciesRecursively: false,
             },
             {
+              name: "three-vendor",
+              test: /node_modules[\\/]three[\\/]/,
+              priority: 2,
+              includeDependenciesRecursively: false,
+            },
+            {
               name: "icons-vendor",
               test: /node_modules[\\/]lucide-react[\\/]/,
               priority: 1,

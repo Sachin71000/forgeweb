@@ -7,6 +7,7 @@ import test from "node:test";
 import { createForgeWebServer } from "../app.ts";
 import { JsonStore } from "../store.ts";
 import { BuildWorkflow } from "../workflow.ts";
+import { inferProductName } from "../product-intent.ts";
 
 test("HTTP boundaries expose proposal, confirmation, and completed build phases", async () => {
   const directory = await mkdtemp(join(tmpdir(), "forgeweb-http-test-"));
@@ -34,10 +35,11 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
     assert.equal(invalidResponse.status, 400);
     assert.equal((await invalidResponse.json() as { error: { code: string } }).error.code, "PROMPT_TOO_SHORT");
 
+    const schedulerPrompt = "Build a secure team scheduler with client access and audit history.";
     const createResponse = await fetch(`${baseUrl}/api/builds`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "Build a secure team scheduler with client access and audit history." }),
+      body: JSON.stringify({ prompt: schedulerPrompt }),
     });
     assert.equal(createResponse.status, 202);
     const created = await createResponse.json() as { build: { id: string; projectId: string } };
@@ -71,16 +73,17 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
     assert.equal(workspaceResponse.status, 200);
     const workspacePayload = await workspaceResponse.json() as { workspace: { currentVersion: { versionNumber: number }; files: unknown[] } };
     assert.equal(workspacePayload.workspace.currentVersion.versionNumber, 1);
-    assert.equal(workspacePayload.workspace.files.length, 12);
+    assert.equal(workspacePayload.workspace.files.length, 27);
 
     const previewResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/preview`);
     assert.equal(previewResponse.status, 200);
-    assert.match(previewResponse.headers.get("content-security-policy") ?? "", /script-src 'none'/);
+    assert.match(previewResponse.headers.get("content-security-policy") ?? "", /script-src 'unsafe-inline'/);
+    assert.match(previewResponse.headers.get("content-security-policy") ?? "", /connect-src 'none'/);
     const previewHtml = await previewResponse.text();
-    assert.match(previewHtml, /Team Scheduler/i);
-    assert.match(previewHtml, /forgeweb-professional-v2/);
+    assert.match(previewHtml, new RegExp(inferProductName(schedulerPrompt), "i"));
+    assert.match(previewHtml, /forgeweb-adaptive-product-v1/);
     assert.match(previewHtml, /aria-label="Primary navigation"/);
-    assert.match(previewHtml, /class="workspace-layout"/);
+    assert.match(previewHtml, /class="workspace"/);
 
     const editResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}/edits`, {
       method: "POST",
@@ -107,6 +110,13 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
     assert.match(eventStream, /event: build\.awaiting_confirmation/);
     assert.match(eventStream, /event: build\.confirmed/);
     assert.match(eventStream, /event: build\.completed/);
+
+    const deleteResponse = await fetch(`${baseUrl}/api/projects/${created.build.projectId}`, { method: "DELETE" });
+    assert.equal(deleteResponse.status, 200);
+    assert.equal((await deleteResponse.json() as { deleted: { id: string } }).deleted.id, created.build.projectId);
+    assert.equal((await fetch(`${baseUrl}/api/projects/${created.build.projectId}`)).status, 404);
+    const remaining = await fetch(`${baseUrl}/api/projects`).then((response) => response.json()) as { projects: Array<{ id: string }> };
+    assert.ok(!remaining.projects.some((project) => project.id === created.build.projectId));
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     await rm(directory, { recursive: true, force: true });

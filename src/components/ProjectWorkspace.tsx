@@ -1,5 +1,6 @@
 import {
   Check,
+  Copy,
   Code2,
   Database,
   Download,
@@ -45,7 +46,6 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
   const [tab, setTab] = useState<WorkspaceTab>("files");
   const [mode, setMode] = useState<PreviewMode>("desktop");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [previewSrc, setPreviewSrc] = useState("");
   const [previewError, setPreviewError] = useState("");
   const [workspaceError, setWorkspaceError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -59,6 +59,8 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportSummary, setExportSummary] = useState<ExportSummary | null>(null);
+  const [selectedPath, setSelectedPath] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -75,23 +77,31 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
   useEffect(() => {
+    if (!workspace?.files.length || workspace.files.some((file) => file.path === selectedPath)) return;
+    setSelectedPath(workspace.files.find((file) => file.path === "frontend/src/App.tsx")?.path ?? workspace.files[0].path);
+  }, [selectedPath, workspace]);
+
+  const currentVersionId = workspace?.currentVersion?.id;
+  const previewSrc = useMemo(
+    () => `/api/projects/${encodeURIComponent(projectId)}/preview?v=${encodeURIComponent(currentVersionId ?? "current")}&refresh=${refreshKey}`,
+    [currentVersionId, projectId, refreshKey],
+  );
+
+  useEffect(() => {
     if (tab !== "preview") return;
-    const url = `/api/projects/${encodeURIComponent(projectId)}/preview?v=${encodeURIComponent(workspace?.currentVersion?.id ?? "current")}&refresh=${refreshKey}`;
     let active = true;
     setPreviewError("");
-    void fetch(url).then((response) => {
+    void fetch(previewSrc).then((response) => {
       if (!active) return;
       if (!response.ok) throw new Error("Preview could not start for this project version.");
-      setPreviewSrc(url);
     }).catch((error) => {
       if (active) setPreviewError(error instanceof Error ? error.message : "Preview could not start.");
     });
     return () => { active = false; };
-  }, [projectId, refreshKey, tab, workspace?.currentVersion?.id]);
+  }, [previewSrc, tab]);
 
   const files = workspace?.files.map((file) => file.path) ?? initialFilePaths;
-  const currentVersionId = workspace?.currentVersion?.id;
-
+  const selectedFile = workspace?.files.find((file) => file.path === selectedPath);
   const applyEdit = async () => {
     if (editBusy || editPrompt.trim().length < 12) return;
     setEditBusy(true);
@@ -158,6 +168,16 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
   };
 
   const versionLabel = workspace?.currentVersion ? `Version ${workspace.currentVersion.versionNumber}` : "Loading version";
+  const copySource = async () => {
+    if (!selectedFile) return;
+    try {
+      await navigator.clipboard.writeText(selectedFile.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_600);
+    } catch {
+      setWorkspaceError("The browser could not copy this file. You can still select the code manually.");
+    }
+  };
   const orderedTabs = useMemo<Array<{ id: WorkspaceTab; label: string; icon: typeof FileCode2 }>>(() => [
     { id: "files", label: "Files", icon: FileCode2 },
     { id: "preview", label: "Preview", icon: Monitor },
@@ -187,7 +207,22 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
 
       {tab === "files" && (
         <div className="workspace-files" role="tabpanel">
-          {files.map((path) => <code key={path}>{path}</code>)}
+          <aside className="workspace-file-list" aria-label="Generated files">
+            <div className="workspace-file-list-heading"><span>Project files</span><b>{files.length}</b></div>
+            {files.map((path) => (
+              <button type="button" className={path === selectedPath ? "is-active" : ""} aria-pressed={path === selectedPath} onClick={() => { setSelectedPath(path); setCopied(false); }} key={path}>
+                <FileCode2 /><span>{path}</span>
+              </button>
+            ))}
+          </aside>
+          <section className="workspace-code-viewer" aria-label={selectedFile ? `${selectedFile.path} source code` : "Generated source code"}>
+            <header>
+              <div><span>{selectedFile?.path ?? "Select a generated file"}</span>{selectedFile && <small>{selectedFile.content.split("\n").length} lines · {selectedFile.digest.slice(0, 10)}</small>}</div>
+              <button type="button" onClick={() => void copySource()} disabled={!selectedFile}><Copy />{copied ? "Copied" : "Copy"}</button>
+            </header>
+            {selectedFile ? <pre tabIndex={0}><code>{selectedFile.content}</code></pre> : <div className="workspace-code-empty"><FileCode2 /><p>Select a file to inspect its complete stored source.</p></div>}
+            {selectedFile && <footer><span>Requirements</span>{selectedFile.requirementIds.map((requirementId) => <code key={requirementId}>{requirementId}</code>)}</footer>}
+          </section>
           {loading && <p className="workspace-muted"><LoaderCircle className="animate-spin" /> Loading stored project source…</p>}
         </div>
       )}
@@ -214,7 +249,7 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
                 key={previewSrc}
                 title={`${workspace?.project.name ?? "Generated project"} preview`}
                 src={previewSrc || "about:blank"}
-                sandbox=""
+                sandbox="allow-scripts allow-forms"
                 style={{ width: viewportWidths[mode] }}
               />
             </div>

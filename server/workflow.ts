@@ -86,6 +86,7 @@ function createArchitecture(
   requirements: Requirement[],
 ): ArchitecturePlan {
   const isCommerce = kind === "commerce";
+  const isRestaurant = kind === "restaurant";
   const isDashboard = /portal|dashboard|admin|inventory|scheduler/i.test(prompt);
   const pages = isCommerce ? [
     "Premium storefront home",
@@ -95,6 +96,13 @@ function createArchitecture(
     "Secure checkout and payment",
     "Order tracking and customer profile",
     "Admin products, users, inventory, and orders",
+  ] : isRestaurant ? [
+    "Story-led restaurant home with cuisine and atmosphere",
+    "Filterable food and drinks menu with dietary labels",
+    "Table reservation flow with date, time, party size, and confirmation",
+    "Private dining and events enquiry",
+    "Location, opening hours, contact, and directions",
+    "Guest account with upcoming reservations and reviews",
   ] : [
     "Secure sign-in",
     isDashboard ? "Role-aware dashboard" : "Product home",
@@ -109,7 +117,18 @@ function createArchitecture(
     "Persistent cart and wishlist",
     "Checkout, payment, and order tracking surfaces",
     "Customer account and admin operations dashboard",
+  ] : isRestaurant ? [
+    "Editorial navigation with reserve-table action",
+    "Seasonal menu cards and dietary filters",
+    "Reservation availability picker and confirmation sheet",
+    "Chef story, gallery, testimonials, and location panel",
+    "Mobile booking bar and accessible enquiry forms",
   ] : ["Responsive application shell", "Command and search surface", "Data cards and empty states", "Accessible forms and confirmation dialogs", "Evidence and activity timeline"];
+  const routes = isCommerce ? [
+    "GET /api/products", "GET /api/products/{product_id}", "PUT /api/cart/items", "POST /api/checkout", "GET /api/orders", "POST /api/reviews", "PATCH /api/admin/inventory/{product_id}",
+  ] : isRestaurant ? [
+    "GET /api/menu", "GET /api/availability", "POST /api/reservations", "GET /api/reservations/{reservation_id}", "DELETE /api/reservations/{reservation_id}", "POST /api/enquiries", "POST /api/reviews",
+  ] : ["GET /api/records", "POST /api/records", "GET /api/records/{record_id}", "PATCH /api/records/{record_id}", "DELETE /api/records/{record_id}"];
   const diagram = [
     "flowchart LR",
     "  Browser[React customer app] --> API[Typed backend API]",
@@ -131,7 +150,7 @@ function createArchitecture(
     "## System shape",
     "",
     "- React and TypeScript customer frontend",
-    "- TypeScript modular backend with typed HTTP contracts",
+    "- Python FastAPI modular backend with Pydantic HTTP contracts",
     "- PostgreSQL data model with project-scoped ownership",
     "- Server-side authentication and role authorization",
     "- Background jobs for slow or retryable work",
@@ -169,7 +188,7 @@ function createArchitecture(
     "",
   ].join("\n");
   return {
-    systemShape: "Modular TypeScript application with a React client, typed backend, relational data, durable jobs, and Git-linked evidence.",
+    systemShape: "Modular application with a React client, Python FastAPI backend, shared JSON contract, relational data, and Git-linked evidence.",
     frontend: {
       framework: "React 19 and TypeScript",
       pages,
@@ -177,10 +196,11 @@ function createArchitecture(
       motion: ["GSAP timelines and scroll choreography", "Anime.js SVG and micro-interactions", "React Bits-inspired reviewed visual patterns", "Reduced-motion alternatives"],
     },
     backend: {
-      runtime: "Node.js and TypeScript",
+      runtime: "Python 3.12 and FastAPI",
       modules: ["Identity", "Authorization", ...entities, "Audit", "Validation"],
       apiStyle: "Versioned JSON HTTP contracts with server-side validation",
       jobs: ["Long-running generation", "Notifications and integrations", "Evidence and graph synchronization"],
+      routes,
     },
     data: {
       database: "PostgreSQL",
@@ -205,7 +225,7 @@ function compileSpecification(projectId: string, prompt: string): MasterSpecific
   const productKind = detectProductKind(prompt);
   const name = inferProductName(prompt, productKind);
   const entities = inferDomainEntities(prompt, productKind);
-  const roles = productKind === "commerce" ? ["Owner", "Admin", "Customer", "Support"] : ["Owner", "Member", ...(/client|customer/i.test(prompt) ? ["Client"] : [])];
+  const roles = productKind === "commerce" ? ["Owner", "Admin", "Customer", "Support"] : productKind === "restaurant" ? ["Owner", "Host", "Guest"] : ["Owner", "Member", ...(/client|customer/i.test(prompt) ? ["Client"] : [])];
   const requirementDefinitions: Array<[string, string]> = productKind === "commerce" ? [
     ["Customer identity", "Customers can securely sign up, sign in, recover access, and manage saved addresses and profile data."],
     ["Catalog discovery", "Customers can browse categories, search products, filter and sort results, and receive fast paginated responses."],
@@ -218,6 +238,14 @@ function compileSpecification(projectId: string, prompt: string): MasterSpecific
     ["Admin operations", "Authorized administrators can manage products, categories, users, inventory, orders, promotions, and review moderation."],
     ["Security and audit", "Server-side authorization, validated contracts, rate limits, redacted logs, and audit evidence protect consequential actions."],
     ["Experience and quality", "The storefront is responsive, accessible, performant, animated progressively, and covered by automated acceptance checks."],
+  ] : productKind === "restaurant" ? [
+    ["Restaurant discovery", "Guests can understand the cuisine, atmosphere, location, opening hours, and primary reservation action from the home page."],
+    ["Menu exploration", "Guests can browse prompt-specific food and drink categories, prices, descriptions, availability, and dietary labels."],
+    ["Table availability", "Guests can check real availability by date, time, and party size before submitting a reservation."],
+    ["Reservation lifecycle", "Guests can create, view, and cancel reservations with validation and a clear confirmation reference."],
+    ["Guest acquisition", "Private dining enquiries, newsletter capture, reviews, and location calls to action support customer acquisition."],
+    ["Restaurant operations", "Hosts can review reservations and protect capacity from double booking through server-side rules."],
+    ["Quality and accessibility", "Navigation, forms, menu filters, and reservation actions work across desktop, tablet, mobile, and keyboard input."],
   ] : [
     ["Authentication", "Users can sign in and sign out through a secure session boundary."],
     ["Authorization", `Server-side role checks protect ${entities.join(", ")}.`],
@@ -248,7 +276,7 @@ function compileSpecification(projectId: string, prompt: string): MasterSpecific
     entities,
     requirements,
     assumptions: [
-      "The first generated stack is TypeScript and uses server-side authorization.",
+      "The generated stack uses React/TypeScript for the frontend and Python/FastAPI for the backend with server-side authorization.",
       "Destructive domain actions use archive semantics unless the specification explicitly requires deletion.",
       "External integrations remain proposals until their credentials and terms are approved.",
     ],
@@ -260,50 +288,53 @@ function compileSpecification(projectId: string, prompt: string): MasterSpecific
 
 export function generateDeterministicFiles(specification: MasterSpecification): GeneratedFile[] {
   const requirementIds = specification.requirements.map((requirement) => requirement.id);
-  const entityUnion = specification.entities.map((entity) => JSON.stringify(entity)).join(" | ");
-  const roleUnion = specification.roles.map((role) => JSON.stringify(role)).join(" | ");
-  const productLiteral = JSON.stringify(specification.productName);
   const frontend = buildGeneratedFrontend(specification);
   const packageJson = {
     name: slugify(specification.productName),
     private: true,
     version: "0.1.0",
     type: "module",
-    scripts: { dev: "vite", build: "tsc -b && vite build", test: "node --test" },
+    scripts: { dev: "vite", build: "tsc --noEmit && vite build", test: "node --test" },
     dependencies: { animejs: "^4.5.0", gsap: "^3.15.0", react: "^19.2.0", "react-dom": "^19.2.0" },
-    devDependencies: { "@vitejs/plugin-react": "^6.0.0", typescript: "^7.0.0", vite: "^8.0.0" },
+    devDependencies: { "@types/react": "^19.2.0", "@types/react-dom": "^19.2.0", "@vitejs/plugin-react": "^6.0.0", typescript: "^7.0.0", vite: "^8.0.0" },
   };
-  const backendContracts = specification.productKind === "commerce" ? [
-    'import type { DomainEntity } from "../domain/model.js";',
-    "export type ProductSearchInput = { query?: string; categoryId?: string; minPrice?: number; maxPrice?: number; rating?: number; sort?: \"relevance\" | \"price-asc\" | \"price-desc\" | \"rating\"; cursor?: string };",
-    "export type CartItemInput = { productId: string; variantId?: string; quantity: number };",
-    "export type CheckoutInput = { cartId: string; addressId: string; deliveryOptionId: string; promotionCode?: string; idempotencyKey: string };",
-    "export type PaymentWebhookEnvelope = { provider: string; signature: string; eventId: string; payload: unknown };",
-    "export type ReviewInput = { productId: string; orderItemId: string; rating: 1 | 2 | 3 | 4 | 5; title: string; body: string };",
-    "export type AdminInventoryInput = { productId: string; available: number; reserved: number; reason: string };",
-    "export type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };",
-    "export type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };",
-    "",
-  ].join("\n") : 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n';
-  const backendIndex = specification.productKind === "commerce" ? [
-    `export const service = { name: ${productLiteral}, status: "ready", apiVersion: "v1" } as const;`,
-    "export const routes = { catalog: \"GET /v1/products\", product: \"GET /v1/products/:id\", cart: \"PUT /v1/cart/items\", wishlist: \"PUT /v1/wishlist/items\", checkout: \"POST /v1/checkout\", paymentWebhook: \"POST /v1/payments/webhook\", orders: \"GET /v1/orders\", reviews: \"POST /v1/reviews\", adminInventory: \"PATCH /v1/admin/inventory/:productId\" } as const;",
-    "export const guarantees = { serverAuthoritativePricing: true, idempotentCheckout: true, signedPaymentWebhooks: true, inventoryReservation: true } as const;",
-    "",
-  ].join("\n") : `export const service = { name: ${productLiteral}, status: "ready", apiVersion: "v1" } as const;\n`;
+  const apiRoutes = (specification.architecture.backend.routes ?? []).map((route) => {
+    const match = route.match(/^(GET|POST|PUT|PATCH|DELETE)\s+(\/\S+)/i);
+    return match ? { method: match[1].toUpperCase(), path: match[2] } : { method: "GET", path: route };
+  });
+  const requirementsMarkdown = [`# ${specification.productName} Requirements`, "", specification.summary, "", ...specification.requirements.flatMap((requirement) => [`## ${requirement.id} — ${requirement.title}`, "", requirement.description, "", ...requirement.acceptanceCriteria.map((criterion) => `- ${criterion}`), ""])].join("\n");
+  const interactions = [`# ${specification.productName} Interaction Contract`, "", ...specification.architecture.frontend.pages.map((page) => `- ${page}: navigation and primary actions must update visible state or call an approved API route.`), "", "- Every form exposes validation, success, and recoverable error feedback.", "- Mobile navigation and keyboard focus are first-class states.", ""].join("\n");
+  const pythonRoutes = specification.productKind === "restaurant" ? `from datetime import date\nfrom fastapi import APIRouter, Depends, HTTPException, Query, Response\nfrom app.schemas.contracts import ReservationCreate\nfrom app.security.access_control import require_role\nfrom app.services.application_service import reservation_service\n\nrouter = APIRouter(prefix=\"/api\")\n\n@router.get(\"/menu\")\ndef menu(): return {\"categories\": reservation_service.menu()}\n\n@router.get(\"/availability\")\ndef availability(date: date, party_size: int = Query(default=2, ge=1, le=12)): return reservation_service.availability(date.isoformat(), party_size)\n\n@router.post(\"/reservations\", status_code=201)\ndef create_reservation(payload: ReservationCreate): return reservation_service.reserve(payload)\n\n@router.get(\"/reservations/{reservation_id}\")\ndef reservation(reservation_id: str):\n    result = reservation_service.get(reservation_id)\n    if not result: raise HTTPException(404, \"Reservation not found\")\n    return result\n\n@router.delete(\"/reservations/{reservation_id}\", status_code=204)\ndef cancel(reservation_id: str):\n    if not reservation_service.get(reservation_id): raise HTTPException(404, \"Reservation not found\")\n    reservation_service.cancel(reservation_id)\n    return Response(status_code=204)\n\n@router.post(\"/enquiries\", status_code=202)\ndef enquiry(payload: dict): return {\"accepted\": True}\n\n@router.post(\"/reviews\", status_code=201)\ndef review(payload: dict, _: None = Depends(lambda: require_role(\"Guest\"))): return payload\n` : `from fastapi import APIRouter, HTTPException\nfrom app.schemas.contracts import RecordCreate\nfrom app.services.application_service import record_service\n\nrouter = APIRouter(prefix=\"/api\")\n\n@router.get(\"/records\")\ndef list_records(): return record_service.list()\n\n@router.post(\"/records\", status_code=201)\ndef create_record(payload: RecordCreate): return record_service.create(payload)\n\n@router.get(\"/records/{record_id}\")\ndef get_record(record_id: str):\n    result = record_service.get(record_id)\n    if not result: raise HTTPException(404, \"Record not found\")\n    return result\n`;
+  const pythonContracts = specification.productKind === "restaurant" ? `from datetime import date\nfrom pydantic import BaseModel, Field\n\nclass ReservationCreate(BaseModel):\n    guest_name: str = Field(min_length=2, max_length=80)\n    email: str = Field(pattern=r\"^[^@]+@[^@]+\\.[^@]+$\")\n    date: date\n    time: str = Field(pattern=r\"^([01]\\d|2[0-3]):[0-5]\\d$\")\n    party_size: int = Field(ge=1, le=12)\n` : `from pydantic import BaseModel, Field\n\nclass RecordCreate(BaseModel):\n    name: str = Field(min_length=2, max_length=120)\n    values: dict = Field(default_factory=dict)\n`;
+  const pythonService = specification.productKind === "restaurant" ? `from uuid import uuid4\nfrom app.repositories.application_repository import repository\n\nclass ReservationService:\n    def menu(self): return [{\"name\": \"Seasonal\", \"items\": [\"Charred peach & burrata\", \"Coal-roasted sea bass\"]}]\n    def availability(self, date, party_size): return {\"date\": date, \"party_size\": party_size, \"slots\": [\"19:00\", \"19:30\", \"20:00\"]}\n    def reserve(self, payload):\n        record = {\"id\": str(uuid4()), **payload.model_dump(mode=\"json\"), \"status\": \"confirmed\"}\n        repository.save(record); return record\n    def get(self, record_id): return repository.get(record_id)\n    def cancel(self, record_id): repository.delete(record_id)\nreservation_service = ReservationService()\n` : `from uuid import uuid4\nfrom app.repositories.application_repository import repository\n\nclass RecordService:\n    def list(self): return repository.list()\n    def create(self, payload):\n        record = {\"id\": str(uuid4()), **payload.model_dump()}\n        repository.save(record); return record\n    def get(self, record_id): return repository.get(record_id)\nrecord_service = RecordService()\n`;
   const templates = [
-    { path: "README.md", requirements: requirementIds, content: "# " + specification.productName + "\n\n" + specification.summary + "\n\nGenerated only after confirmation of specification " + specification.id + ".\n" },
+    { path: "README.md", requirements: requirementIds, content: "# " + specification.productName + "\n\n" + specification.summary + "\n\n## Run\n\nFrontend: `npm install && npm run dev`\n\nBackend: `cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload`\n\nBoth sides use `shared/api-contract.json`.\n" },
+    { path: "REQUIREMENTS.md", requirements: requirementIds, content: requirementsMarkdown },
     { path: "ARCHITECTURE.md", requirements: requirementIds, content: specification.architecture.markdown },
+    { path: "INTERACTIONS.md", requirements: requirementIds, content: interactions },
+    { path: "shared/api-contract.json", requirements: requirementIds, content: JSON.stringify({ version: "1.0", product: specification.productName, routes: apiRoutes }, null, 2) + "\n" },
     { path: "package.json", requirements: ["REQ-006"], content: JSON.stringify(packageJson, null, 2) + "\n" },
+    { path: "index.html", requirements: ["REQ-006"], content: '<!doctype html>\n<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>' + specification.productName.replace(/[<>&"]/g, "") + '</title></head><body><div id="root"></div><script type="module" src="/frontend/src/main.tsx"></script></body></html>\n' },
+    { path: "tsconfig.json", requirements: ["REQ-006"], content: JSON.stringify({ compilerOptions: { target: "ES2022", useDefineForClassFields: true, lib: ["ES2022", "DOM", "DOM.Iterable"], allowJs: false, skipLibCheck: true, esModuleInterop: true, allowSyntheticDefaultImports: true, strict: true, forceConsistentCasingInFileNames: true, module: "ESNext", moduleResolution: "Bundler", resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: "react-jsx" }, include: ["frontend/src"] }, null, 2) + "\n" },
     { path: "frontend/src/App.tsx", requirements: ["REQ-003", "REQ-006"], content: frontend.app },
     { path: "frontend/src/styles.css", requirements: ["REQ-006"], content: frontend.styles },
     { path: "frontend/src/main.tsx", requirements: ["REQ-006"], content: 'import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App.js";\n\ncreateRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);\n' },
+    { path: "frontend/src/vite-env.d.ts", requirements: ["REQ-006"], content: '/// <reference types="vite/client" />\n' },
+    { path: "frontend/src/lib/api.ts", requirements: requirementIds, content: 'const API_BASE = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";\nexport async function api<T>(path: string, init?: RequestInit): Promise<T> { const response = await fetch(`${API_BASE}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); if (!response.ok) throw new Error(`API ${response.status}`); return response.status === 204 ? undefined as T : response.json(); }\n' },
+    { path: "frontend/src/components/Navigation.tsx", requirements: requirementIds, content: 'export function Navigation() { return <nav aria-label="Generated product navigation" />; }\n' },
+    { path: "frontend/src/components/Feedback.tsx", requirements: requirementIds, content: 'export function Feedback({ message }: { message: string }) { return <p role="status">{message}</p>; }\n' },
+    { path: "frontend/src/pages/HomePage.tsx", requirements: requirementIds, content: 'export function HomePage() { return <main id="home" />; }\n' },
     { path: "frontend/preview.html", requirements: ["REQ-003", "REQ-006"], content: frontend.preview },
-    { path: "backend/src/domain/model.ts", requirements: ["REQ-003", "REQ-004"], content: "export type DomainEntity = " + entityUnion + ";\nexport type Role = " + roleUnion + ";\nexport type DomainRecord = { id: string; entity: DomainEntity; ownerId: string; archivedAt?: string; createdAt: string; updatedAt: string };\n" },
-    { path: "backend/src/security/access-control.ts", requirements: ["REQ-001", "REQ-002", "REQ-004"], content: 'import type { DomainRecord, Role } from "../domain/model.js";\nexport function canAccess(role: Role, userId: string, record: DomainRecord): boolean { return role === "Owner" || (record.ownerId === userId && !record.archivedAt); }\nexport function requireAccess(allowed: boolean): asserts allowed { if (!allowed) throw new Error("FORBIDDEN"); }\n' },
-    { path: "backend/src/api/contracts.ts", requirements: requirementIds, content: backendContracts },
-    { path: "backend/src/index.ts", requirements: requirementIds, content: backendIndex },
-    { path: "tests/acceptance.test.ts", requirements: requirementIds, content: 'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("approved architecture keeps requirement coverage", () => { assert.equal(' + JSON.stringify(requirementIds) + ".length, " + requirementIds.length + "); });\n" },
+    { path: "backend/requirements.txt", requirements: requirementIds, content: "fastapi==0.116.1\nuvicorn[standard]==0.35.0\npydantic==2.11.7\npytest==8.4.1\nhttpx==0.28.1\n" },
+    { path: "backend/app/__init__.py", requirements: requirementIds, content: "# Generated application package.\n" },
+    { path: "backend/app/main.py", requirements: requirementIds, content: `from fastapi import FastAPI\nfrom fastapi.middleware.cors import CORSMiddleware\nfrom app.api.routes import router\n\napp = FastAPI(title=${JSON.stringify(specification.productName)}, version=\"1.0.0\")\napp.add_middleware(CORSMiddleware, allow_origins=[\"http://127.0.0.1:5173\", \"http://localhost:5173\"], allow_methods=[\"*\"], allow_headers=[\"*\"])\napp.include_router(router)\n\n@app.get(\"/health\")\ndef health(): return {\"status\": \"ok\"}\n` },
+    { path: "backend/app/api/routes.py", requirements: requirementIds, content: pythonRoutes },
+    { path: "backend/app/models/domain.py", requirements: requirementIds, content: `from dataclasses import dataclass\n\n@dataclass(frozen=True)\nclass DomainRecord:\n    id: str\n    entity: str\n` },
+    { path: "backend/app/schemas/contracts.py", requirements: requirementIds, content: pythonContracts },
+    { path: "backend/app/services/application_service.py", requirements: requirementIds, content: pythonService },
+    { path: "backend/app/repositories/application_repository.py", requirements: requirementIds, content: `class Repository:\n    def __init__(self): self._records = {}\n    def list(self): return list(self._records.values())\n    def get(self, record_id): return self._records.get(record_id)\n    def save(self, record): self._records[record[\"id\"]] = record\n    def delete(self, record_id): self._records.pop(record_id, None)\nrepository = Repository()\n` },
+    { path: "backend/app/security/access_control.py", requirements: ["REQ-001", "REQ-002", "REQ-004"], content: `from fastapi import HTTPException\n\ndef require_role(role: str) -> None:\n    if role not in ${JSON.stringify(specification.roles)}: raise HTTPException(403, \"Forbidden\")\n` },
+    { path: "backend/tests/test_api.py", requirements: requirementIds, content: specification.productKind === "restaurant" ? 'from fastapi.testclient import TestClient\nfrom app.main import app\n\nclient = TestClient(app)\n\ndef test_health_and_menu():\n    assert client.get("/health").json() == {"status": "ok"}\n    assert client.get("/api/menu").status_code == 200\n\ndef test_reservation_lifecycle():\n    availability = client.get("/api/availability", params={"date": "2030-08-29", "party_size": 2})\n    assert availability.status_code == 200\n    assert availability.json()["slots"]\n    created = client.post("/api/reservations", json={"guest_name": "Test Guest", "email": "guest@example.com", "date": "2030-08-29", "time": "19:00", "party_size": 2})\n    assert created.status_code == 201\n    reservation_id = created.json()["id"]\n    assert client.get(f"/api/reservations/{reservation_id}").status_code == 200\n    assert client.delete(f"/api/reservations/{reservation_id}").status_code == 204\n    assert client.get(f"/api/reservations/{reservation_id}").status_code == 404\n\ndef test_reservation_validation():\n    invalid = client.get("/api/availability", params={"date": "not-a-date", "party_size": 99})\n    assert invalid.status_code == 422\n' : 'from fastapi.testclient import TestClient\nfrom app.main import app\n\ndef test_health():\n    assert TestClient(app).get("/health").json() == {"status": "ok"}\n' },
   ];
   return templates.map((template) => ({
     path: safePath(template.path),
@@ -331,11 +362,12 @@ function validate(specification: MasterSpecification, files: GeneratedFile[], fi
   const checks: ValidationCheck[] = [
     { id: id("check"), name: "Safe generated paths", status: files.every((file) => !file.path.includes("..")) ? "passed" : "failed", evidence: `${files.length} repository-relative paths inspected.` },
     { id: id("check"), name: "Architecture contract", status: paths.has("ARCHITECTURE.md") ? "passed" : "failed", evidence: "The approved architecture is preserved beside generated source." },
-    { id: id("check"), name: "Required secure boundary", status: paths.has("backend/src/security/access-control.ts") ? "passed" : "failed", evidence: "Server-side access-control artifact is present." },
+    { id: id("check"), name: "Required secure boundary", status: paths.has("backend/app/security/access_control.py") ? "passed" : "failed", evidence: "Python server-side access-control artifact is present." },
     { id: id("check"), name: "Customer frontend", status: paths.has("frontend/src/App.tsx") && paths.has("frontend/src/styles.css") ? "passed" : "failed", evidence: "Responsive React application and design system are present." },
     { id: id("check"), name: "Professional preview artifact", status: hasGeneratedFrontendMarker(files.find((file) => file.path === "frontend/preview.html")?.content ?? "") ? "passed" : "failed", evidence: "A stored, sandbox-renderable professional application preview is present." },
-    { id: id("check"), name: "Customer backend", status: paths.has("backend/src/index.ts") && paths.has("backend/src/api/contracts.ts") ? "passed" : "failed", evidence: "Typed backend entrypoint and API contracts are present." },
-    { id: id("check"), name: "Acceptance tests", status: paths.has("tests/acceptance.test.ts") ? "passed" : "failed", evidence: "Generated acceptance-test artifact is present." },
+    { id: id("check"), name: "Customer backend", status: paths.has("backend/app/main.py") && paths.has("backend/app/schemas/contracts.py") ? "passed" : "failed", evidence: "FastAPI entrypoint and Pydantic API contracts are present." },
+    { id: id("check"), name: "Shared API contract", status: paths.has("shared/api-contract.json") ? "passed" : "failed", evidence: "Frontend and backend are linked by a stored route contract." },
+    { id: id("check"), name: "Acceptance tests", status: paths.has("backend/tests/test_api.py") ? "passed" : "failed", evidence: "Generated backend acceptance-test artifact is present." },
     { id: id("check"), name: "Requirement traceability", status: specification.requirements.every((requirement) => traced.has(requirement.id)) ? "passed" : "failed", evidence: `${traced.size}/${specification.requirements.length} requirement identifiers mapped.` },
     { id: id("check"), name: "Independent review", status: findings.every((finding) => finding.severity !== "error") ? "passed" : "failed", evidence: `${findings.length} review record(s) evaluated.` },
     { id: id("check"), name: "Policy provenance", status: AGENT_POLICY.sourceRevision.length >= 7 && AGENT_POLICY.sourceDigest.startsWith("sha256:") ? "passed" : "failed", evidence: `${AGENT_POLICY.version} at upstream revision ${AGENT_POLICY.sourceRevision}.` },
@@ -457,9 +489,37 @@ export class BuildWorkflow {
     return Object.values(this.store.read().projects).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
-  generationStatus(): { mode: "gemini" | "deterministic"; provider: string; model: string; configured: boolean } {
+  async deleteProject(projectId: string): Promise<{ id: string; name: string }> {
+    const snapshot = this.store.read();
+    const project = snapshot.projects[projectId];
+    if (!project) throw new ApiError(404, "PROJECT_NOT_FOUND", "Project was not found.");
+    const projectBuilds = Object.values(snapshot.builds).filter((build) => build.projectId === projectId);
+    if (projectBuilds.some((build) => ["queued", "specifying", "planning", "generating", "reviewing", "validating"].includes(build.status))) {
+      throw new ApiError(409, "PROJECT_BUSY", "Wait for the active build to finish before deleting this project.");
+    }
+    await this.store.mutate((database) => {
+      const buildIds = Object.values(database.builds).filter((build) => build.projectId === projectId).map((build) => build.id);
+      const buildIdSet = new Set(buildIds);
+      for (const task of Object.values(database.tasks)) if (buildIdSet.has(task.buildId)) delete database.tasks[task.id];
+      for (const buildId of buildIds) {
+        delete database.builds[buildId];
+        delete database.files[buildId];
+        delete database.events[buildId];
+      }
+      for (const specification of Object.values(database.specifications)) if (specification.projectId === projectId) delete database.specifications[specification.id];
+      for (const graph of Object.values(database.graphs)) if (graph.projectId === projectId) delete database.graphs[graph.id];
+      for (const version of Object.values(database.versions)) if (version.projectId === projectId) {
+        delete database.versionFiles[version.id];
+        delete database.versions[version.id];
+      }
+      delete database.projects[projectId];
+    });
+    return { id: project.id, name: project.name };
+  }
+
+  generationStatus(): { mode: "ai" | "gemini" | "deterministic"; provider: string; model: string; configured: boolean } {
     return this.generationProvider
-      ? { mode: "gemini", provider: this.generationProvider.id, model: this.generationProvider.model, configured: true }
+      ? { mode: this.generationProvider.mode, provider: this.generationProvider.id, model: this.generationProvider.model, configured: true }
       : { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", configured: false };
   }
 
@@ -478,12 +538,12 @@ export class BuildWorkflow {
       if (this.generationProvider) {
         try {
           const providerPlan = await this.generationProvider.plan(sourcePrompt, fallbackSpecification);
-          specification = applyProviderPlan(fallbackSpecification, providerPlan, this.generationProvider.model);
+          specification = applyProviderPlan(fallbackSpecification, providerPlan, this.generationProvider);
         } catch (error) {
           const reason = error instanceof Error ? error.message : "Gemini planning failed validation.";
           specification = {
             ...fallbackSpecification,
-            generator: { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `Gemini planning fallback: ${reason}` },
+            generator: { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `AI planning fallback: ${reason}` },
           };
         }
       }
@@ -568,16 +628,16 @@ export class BuildWorkflow {
       const tasks = initial.taskIds.map((taskId) => database.tasks[taskId]).filter((task): task is AgentTask => Boolean(task));
       if (tasks.length === 0) throw new ApiError(500, "TASK_PLAN_INVALID", "Approved task plan is missing.");
 
-      await this.stage(buildId, "generating", specification.generator?.mode === "gemini"
-        ? `Gemini ${specification.generator.model} is generating a prompt-specific modular application manifest.`
-        : "Generating a secure responsive application with the deterministic local fallback.");
+      await this.stage(buildId, "generating", specification.generator?.mode !== "deterministic"
+        ? `${specification.generator?.provider ?? "AI"} is generating the approved React frontend and contract-matched Python backend.`
+        : "Generating a secure prompt-specific application with the deterministic local fallback.");
       let files = generateDeterministicFiles(specification);
-      if (this.generationProvider && specification.generator?.mode === "gemini") {
+      if (this.generationProvider && specification.generator?.mode !== "deterministic") {
         try {
           files = await this.generationProvider.generate(specification);
         } catch (error) {
           const reason = error instanceof Error ? error.message : "Gemini implementation failed validation.";
-          specification.generator = { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `Gemini implementation fallback: ${reason}` };
+          specification.generator = { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `AI implementation fallback: ${reason}` };
           await this.store.mutate((database) => { database.specifications[specification.id] = specification; });
           files = generateDeterministicFiles(specification);
         }

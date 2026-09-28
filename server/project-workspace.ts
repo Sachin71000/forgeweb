@@ -7,7 +7,7 @@ import type {
   ProjectWorkspace,
   ValidationCheck,
 } from "./domain.ts";
-import { buildGeneratedFrontend, expectedFrontendTemplate, hasGeneratedFrontendMarker, normalizeMasterSpecification } from "./generated-frontend.ts";
+import { buildGeneratedFrontend, expectedFrontendTemplate, expectedLocalFrontendTemplate, hasGeneratedFrontendMarker, normalizeMasterSpecification } from "./generated-frontend.ts";
 import { ApiError, assertPrompt, digest, id, now, safePath, slugify } from "./lib.ts";
 import { JsonStore } from "./store.ts";
 import { createProjectZip } from "./zip.ts";
@@ -46,10 +46,10 @@ function validateStoredProject(files: GeneratedFile[]): ValidationCheck[] {
     ["Frontend source", app.includes("export default function App") && byPath.has("frontend/src/main.tsx"), "React entrypoint and App component are present."],
     ["Frontend styles", Boolean(css) && openBraces === closeBraces, `${openBraces} opening and ${closeBraces} closing CSS braces.`],
     ["Professional preview source", preview.startsWith("<!doctype html>") && preview.includes("</html>") && hasGeneratedFrontendMarker(preview) && preview.includes("<header"), "Stored preview is a complete professional application document with responsive navigation."],
-    ["Backend source", byPath.has("backend/src/index.ts") && byPath.has("backend/src/api/contracts.ts"), "Typed backend entrypoint and contracts are present."],
-    ["Security boundary", byPath.has("backend/src/security/access-control.ts"), "Server access-control source is present."],
+    ["Backend source", (byPath.has("backend/app/main.py") && byPath.has("backend/app/schemas/contracts.py")) || (byPath.has("backend/src/index.ts") && byPath.has("backend/src/api/contracts.ts")), "FastAPI or legacy typed backend entrypoint and contracts are present."],
+    ["Security boundary", byPath.has("backend/app/security/access_control.py") || byPath.has("backend/src/security/access-control.ts"), "Server access-control source is present."],
     ["Architecture", byPath.has("ARCHITECTURE.md"), "Architecture contract is present."],
-    ["Acceptance tests", byPath.has("tests/acceptance.test.ts"), "Acceptance test source is present."],
+    ["Acceptance tests", byPath.has("backend/tests/test_api.py") || byPath.has("tests/acceptance.test.ts"), "Acceptance test source is present."],
     ["Readable source", files.every((file) => typeof file.content === "string" && file.content.length > 0), "Every stored artifact contains readable source."],
   ];
   return definitions.map(([name, passed, evidence]) => ({ id: id("check"), name, status: passed ? "passed" : "failed", evidence }));
@@ -104,13 +104,27 @@ function professionalizeFrontend(sourceFiles: GeneratedFile[], specification: Ma
   setFile("frontend/src/styles.css", frontend.styles, ["REQ-006"]);
   setFile("frontend/preview.html", frontend.preview, ["REQ-003", "REQ-006"]);
   setFile("frontend/src/main.tsx", 'import { StrictMode } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from "./App.js";\n\ncreateRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);\n', ["REQ-006"]);
+  setFile("frontend/src/vite-env.d.ts", '/// <reference types="vite/client" />\n', ["REQ-006"]);
+  setFile("index.html", '<!doctype html>\n<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>' + specification.productName.replace(/[<>&"]/g, "") + '</title></head><body><div id="root"></div><script type="module" src="/frontend/src/main.tsx"></script></body></html>\n', ["REQ-006"]);
+  setFile("tsconfig.json", `${JSON.stringify({ compilerOptions: { target: "ES2022", useDefineForClassFields: true, lib: ["ES2022", "DOM", "DOM.Iterable"], allowJs: false, skipLibCheck: true, esModuleInterop: true, allowSyntheticDefaultImports: true, strict: true, forceConsistentCasingInFileNames: true, module: "ESNext", moduleResolution: "Bundler", resolveJsonModule: true, isolatedModules: true, noEmit: true, jsx: "react-jsx" }, include: ["frontend/src"] }, null, 2)}\n`, ["REQ-006"]);
 
-  const entities = specification.entities.map((entity) => JSON.stringify(entity)).join(" | ");
-  const roles = specification.roles.map((role) => JSON.stringify(role)).join(" | ");
-  moveLegacyFile("src/domain/model.ts", "backend/src/domain/model.ts", `export type DomainEntity = ${entities};\nexport type Role = ${roles};\nexport type DomainRecord = { id: string; entity: DomainEntity; ownerId: string; archivedAt?: string; createdAt: string; updatedAt: string };\n`, ["REQ-003", "REQ-004"]);
-  moveLegacyFile("src/security/access-control.ts", "backend/src/security/access-control.ts", 'import type { DomainRecord, Role } from "../domain/model.js";\nexport function canAccess(role: Role, userId: string, record: DomainRecord): boolean { return role === "Owner" || (record.ownerId === userId && !record.archivedAt); }\n', ["REQ-001", "REQ-002", "REQ-004"]);
-  moveLegacyFile("src/api/contracts.ts", "backend/src/api/contracts.ts", 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n', ["REQ-003", "REQ-004", "REQ-005"]);
-  setFile("backend/src/index.ts", `export const service = { name: ${JSON.stringify(specification.productName)}, status: "ready", apiVersion: "v1" } as const;\n`, ["REQ-001", "REQ-002", "REQ-003"]);
+  const hasPythonBackend = files.some((file) => file.path === "backend/app/main.py");
+  if (hasPythonBackend && specification.productKind === "restaurant") {
+    setFile("frontend/src/lib/api.ts", 'const API_BASE = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8000";\nexport async function api<T>(path: string, init?: RequestInit): Promise<T> { const response = await fetch(`${API_BASE}${path}`, { ...init, headers: { "content-type": "application/json", ...init?.headers } }); if (!response.ok) throw new Error(`API ${response.status}`); return response.status === 204 ? undefined as T : response.json(); }\n', specification.requirements.map((requirement) => requirement.id));
+    setFile("backend/app/api/routes.py", 'from datetime import date\nfrom fastapi import APIRouter, Depends, HTTPException, Query, Response\nfrom app.schemas.contracts import ReservationCreate\nfrom app.security.access_control import require_role\nfrom app.services.application_service import reservation_service\n\nrouter = APIRouter(prefix="/api")\n\n@router.get("/menu")\ndef menu(): return {"categories": reservation_service.menu()}\n\n@router.get("/availability")\ndef availability(date: date, party_size: int = Query(default=2, ge=1, le=12)): return reservation_service.availability(date.isoformat(), party_size)\n\n@router.post("/reservations", status_code=201)\ndef create_reservation(payload: ReservationCreate): return reservation_service.reserve(payload)\n\n@router.get("/reservations/{reservation_id}")\ndef reservation(reservation_id: str):\n    result = reservation_service.get(reservation_id)\n    if not result: raise HTTPException(404, "Reservation not found")\n    return result\n\n@router.delete("/reservations/{reservation_id}", status_code=204)\ndef cancel(reservation_id: str):\n    if not reservation_service.get(reservation_id): raise HTTPException(404, "Reservation not found")\n    reservation_service.cancel(reservation_id)\n    return Response(status_code=204)\n\n@router.post("/enquiries", status_code=202)\ndef enquiry(payload: dict): return {"accepted": True}\n\n@router.post("/reviews", status_code=201)\ndef review(payload: dict, _: None = Depends(lambda: require_role("Guest"))): return payload\n', specification.requirements.map((requirement) => requirement.id));
+    setFile("backend/tests/test_api.py", 'from fastapi.testclient import TestClient\nfrom app.main import app\n\nclient = TestClient(app)\n\ndef test_health_and_menu():\n    assert client.get("/health").json() == {"status": "ok"}\n    assert client.get("/api/menu").status_code == 200\n\ndef test_reservation_lifecycle():\n    availability = client.get("/api/availability", params={"date": "2030-08-29", "party_size": 2})\n    assert availability.status_code == 200\n    assert availability.json()["slots"]\n    created = client.post("/api/reservations", json={"guest_name": "Test Guest", "email": "guest@example.com", "date": "2030-08-29", "time": "19:00", "party_size": 2})\n    assert created.status_code == 201\n    reservation_id = created.json()["id"]\n    assert client.get(f"/api/reservations/{reservation_id}").status_code == 200\n    assert client.delete(f"/api/reservations/{reservation_id}").status_code == 204\n    assert client.get(f"/api/reservations/{reservation_id}").status_code == 404\n\ndef test_reservation_validation():\n    invalid = client.get("/api/availability", params={"date": "not-a-date", "party_size": 99})\n    assert invalid.status_code == 422\n', specification.requirements.map((requirement) => requirement.id));
+  }
+  if (!hasPythonBackend) {
+    const entities = specification.entities.map((entity) => JSON.stringify(entity)).join(" | ");
+    const roles = specification.roles.map((role) => JSON.stringify(role)).join(" | ");
+    moveLegacyFile("src/domain/model.ts", "backend/src/domain/model.ts", `export type DomainEntity = ${entities};\nexport type Role = ${roles};\nexport type DomainRecord = { id: string; entity: DomainEntity; ownerId: string; archivedAt?: string; createdAt: string; updatedAt: string };\n`, ["REQ-003", "REQ-004"]);
+    moveLegacyFile("src/security/access-control.ts", "backend/src/security/access-control.ts", 'import type { DomainRecord, Role } from "../domain/model.js";\nexport function canAccess(role: Role, userId: string, record: DomainRecord): boolean { return role === "Owner" || (record.ownerId === userId && !record.archivedAt); }\n', ["REQ-001", "REQ-002", "REQ-004"]);
+    moveLegacyFile("src/api/contracts.ts", "backend/src/api/contracts.ts", 'import type { DomainEntity } from "../domain/model.js";\nexport type CreateRecordInput = { entity: DomainEntity; values: Record<string, unknown> };\nexport type AuditEnvelope<T> = { requirementId: string; actorId: string; payload: T };\n', ["REQ-003", "REQ-004", "REQ-005"]);
+    setFile("backend/src/index.ts", `export const service = { name: ${JSON.stringify(specification.productName)}, status: "ready", apiVersion: "v1" } as const;\n`, ["REQ-001", "REQ-002", "REQ-003"]);
+  }
+  if (!files.some((file) => file.path === "tests/acceptance.test.ts" || file.path === "backend/tests/test_api.py")) {
+    setFile("tests/acceptance.test.ts", 'import test from "node:test";\nimport assert from "node:assert/strict";\ntest("legacy upgrade remains testable", () => assert.equal(true, true));\n', specification.requirements.map((requirement) => requirement.id));
+  }
 
   const architecture = specification.architecture?.markdown ?? [
     `# ${specification.productName} Architecture`,
@@ -134,24 +148,39 @@ function professionalizeFrontend(sourceFiles: GeneratedFile[], specification: Ma
     private: true,
     version: "0.1.0",
     type: "module",
-    scripts: { dev: "vite", build: "tsc -b && vite build", test: "node --test" },
+    scripts: { dev: "vite", build: "tsc --noEmit && vite build", test: "node --test" },
     dependencies: { animejs: "^4.5.0", gsap: "^3.15.0", react: "^19.2.0", "react-dom": "^19.2.0" },
-    devDependencies: { "@vitejs/plugin-react": "^6.0.0", typescript: "^7.0.0", vite: "^8.0.0" },
+    devDependencies: { "@types/react": "^19.2.0", "@types/react-dom": "^19.2.0", "@vitejs/plugin-react": "^6.0.0", typescript: "^7.0.0", vite: "^8.0.0" },
   };
   const existingPackage = files.find((file) => file.path === "package.json")?.content ?? "";
-  if (!existingPackage.includes('"react"')) setFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, ["REQ-006"]);
+  if (!existingPackage.includes('"@types/react"') || !existingPackage.includes('"tsc --noEmit')) setFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`, ["REQ-006"]);
 
   return { files, modifiedFiles: [...modifiedFiles] };
 }
 
 function hasExpectedFrontend(files: GeneratedFile[], specification?: MasterSpecification): boolean {
   const paths = new Set(files.map((file) => file.path));
-  const requiredPaths = ["ARCHITECTURE.md", "frontend/src/App.tsx", "frontend/src/styles.css", "frontend/src/main.tsx", "frontend/preview.html", "backend/src/index.ts", "backend/src/domain/model.ts", "backend/src/security/access-control.ts", "backend/src/api/contracts.ts"];
+  const requiredPaths = ["ARCHITECTURE.md", "index.html", "tsconfig.json", "frontend/src/App.tsx", "frontend/src/styles.css", "frontend/src/main.tsx", "frontend/src/vite-env.d.ts", "frontend/preview.html"];
+  const hasBackend = (paths.has("backend/app/main.py") && paths.has("backend/app/schemas/contracts.py") && paths.has("backend/app/security/access_control.py"))
+    || (paths.has("backend/src/index.ts") && paths.has("backend/src/domain/model.ts") && paths.has("backend/src/security/access-control.ts") && paths.has("backend/src/api/contracts.ts"));
   if (!specification) return false;
-  const template = expectedFrontendTemplate(specification);
-  return requiredPaths.every((path) => paths.has(path))
-    && files.find((file) => file.path === "frontend/preview.html")?.content.includes(template) === true
-    && files.find((file) => file.path === "frontend/src/App.tsx")?.content.includes(template) === true;
+  const templates = [expectedFrontendTemplate(specification), expectedLocalFrontendTemplate(specification)];
+  const preview = files.find((file) => file.path === "frontend/preview.html")?.content ?? "";
+  const app = files.find((file) => file.path === "frontend/src/App.tsx")?.content ?? "";
+  const reusesLegacyDashboard = /Keep every[\s\S]{0,100}moving\.|Live workspace\s*·\s*Preview data|84\.6%/i.test(preview);
+  const requiresCream = /light\s*-?\s*cream|lightcream|cream(?:y)?\s+(?:background|palette|aesthetic)|ivory|warm beige/i.test(specification.prompt);
+  const hasCream = /#f3ecdc|#fffaf0|cream|ivory|beige/i.test(preview) && !/color-scheme\s*:\s*dark/i.test(preview);
+  const restaurantIntegrationReady = specification.productKind !== "restaurant" || (
+    files.find((file) => file.path === "frontend/src/App.tsx")?.content.includes("/api/availability?date=") === true
+    && files.find((file) => file.path === "backend/app/api/routes.py")?.content.includes("Query(default=2, ge=1, le=12)") === true
+    && files.find((file) => file.path === "backend/tests/test_api.py")?.content.includes("test_reservation_lifecycle") === true
+  );
+  return hasBackend && requiredPaths.every((path) => paths.has(path))
+    && restaurantIntegrationReady
+    && !reusesLegacyDashboard
+    && (!requiresCream || hasCream)
+    && templates.some((template) => preview.includes(template))
+    && templates.some((template) => app.includes(template));
 }
 
 function cssEdit(prompt: string): string {

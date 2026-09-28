@@ -1,0 +1,34 @@
+\begin{tikzpicture}[x=1cm,y=1.25cm,block/.append style={font=\sffamily\scriptsize,inner sep=4pt}]
+\node[tag,anchor=west] at (0,0.45) {USER LAYER};
+\node[block,text width=3.3cm,minimum height=.78cm] (prompt) at (1.9,-.35) {Prompt composer\\\scriptsize Product needs and visual direction};
+\node[gate,text width=3.3cm,minimum height=.78cm] (approval) at (6,-.35) {Architecture review\\\scriptsize Edit or explicitly approve};
+\node[block,text width=5.45cm,minimum height=.78cm] (workspace) at (11.5,-.35) {Project workspace\\\scriptsize Files, preview, versions, history, export};
+\draw[flow] (prompt)--(approval);
+\draw[flow] (approval)--(workspace);
+\node[tag,anchor=west] at (0,-1.22) {CONTROL PLANE / NODE.JS + TYPESCRIPT};
+\node[block,text width=3.3cm,minimum height=.86cm] (planner) at (1.9,-1.97) {Requirement planner\\\scriptsize Structured specification};
+\node[gate,text width=3.3cm,minimum height=.86cm] (workflow) at (6,-1.97) {Workflow coordinator\\\scriptsize Approval and stage transitions};
+\node[block,text width=2.15cm,minimum height=.86cm] (router) at (9.7,-1.97) {Inference router\\\scriptsize Cloud + local adapters};
+\node[block,text width=2.15cm,minimum height=.86cm] (checks) at (12.75,-1.97) {Policy + checks\\\scriptsize Scope and artifacts};
+\draw[flow] (approval.south)--(workflow.north);
+\draw[flow] (planner)--(workflow);
+\draw[flow] (workflow)--(router);
+\draw[flow] (router)--(checks);
+\draw[flow] (checks.north)--++(0,.24)-|(workspace.south);
+\node[tag,anchor=west] at (0,-2.89) {GENERATION ADAPTERS};
+\node[block,text width=3.3cm,minimum height=.88cm] (gemini) at (1.9,-3.68) {Gemini adapter\\\scriptsize Planning and React frontend};
+\node[gate,text width=3.3cm,minimum height=.88cm] (llama) at (6,-3.68) {Local fine-tuned LLaMA\\\scriptsize Proposed Python generator};
+\node[data,text width=5.45cm,minimum height=.88cm] (local) at (11.5,-3.68) {Domain-aware local generators\\\scriptsize Commerce, restaurant, portal, inventory, scheduler, generic};
+\draw[softflow] (router.south)--(9.7,-3.12)-|(gemini.north);
+\draw[softflow] (router.south)--(9.7,-3.12)-|(llama.north);
+\draw[softflow] (router.south)--(9.7,-3.12)-|(local.north);
+\node[tag,anchor=west] at (0,-4.58) {PROJECT STATE AND OUTPUT};
+\node[data,text width=3.3cm,minimum height=.85cm] (store) at (1.9,-5.35) {Serialized JSON store\\\scriptsize Projects, events and versions};
+\node[data,text width=3.3cm,minimum height=.85cm] (artifacts) at (6,-5.35) {Generated artifacts\\\scriptsize Source, contract and preview};
+\node[data,text width=5.45cm,minimum height=.85cm] (graph) at (11.5,-5.35) {Traceability and export\\\scriptsize Requirement links, checks, snapshots and ZIP};
+\draw[flow] (gemini.south)--++(0,-.18)-|(artifacts.north);
+\draw[flow] (llama.south)--(artifacts.north);
+\draw[flow] (local.south)--++(0,-.18)-|(artifacts.north);
+\draw[flow] (artifacts)--(store);
+\draw[flow] (artifacts)--(graph);
+\end{tikzpicture}

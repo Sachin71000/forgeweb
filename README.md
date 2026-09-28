@@ -23,14 +23,14 @@ The workspace history is available from a Codex-style collapsible drawer with Ne
 - Prompt-to-requirements compilation with stable requirement IDs.
 - Prompt-specific architecture covering frontend, backend, data, security, delivery, and system boundaries.
 - Product-intent extraction for commerce, inventory, scheduling, portals, and general applications, including stable product naming and domain entities.
-- Optional server-side Gemini structured generation that creates a distinct architecture and a validated 15–28 file application manifest from each customer prompt.
-- Transparent local fallback when Gemini is unavailable, without exposing provider keys or blocking a live demonstration.
+- Staged server-side generation: Gemini creates prompt-specific architecture and React UI; Groq/OpenRouter creates the contract-matched Python FastAPI backend.
+- Cross-provider and local fallback without exposing provider keys or blocking a live demonstration.
 - A hard `awaiting_confirmation` gate: no source files exist before approval.
 - An **Edit prompt** action beside confirmation that returns focus to the original composer before generation.
 - React and TypeScript customer-application generation.
 - A dedicated premium commerce generator with storefront search, categories, product cards, cart/wishlist navigation, order tracking, trust surfaces, responsive layouts, and admin entry points.
 - A Codex-style collapsible top-left drawer with **New chat** and persistent project history.
-- Typed Node.js backend contracts, role/ownership policy, and audit envelopes.
+- Python FastAPI backend contracts, Pydantic validation, role/ownership policy, and audit boundaries.
 - Customer-app capability planning for React, Git, GSAP, Anime.js, and reviewed React Bits patterns.
 - Karpathy-derived coding discipline and gstack-informed bounded specialist tasks.
 - Independent scope and traceability review.
@@ -69,7 +69,7 @@ The confirmation boundary is enforced by the backend state machine. It is not me
 | Control plane | Node.js, TypeScript, native HTTP server |
 | Persistence | Atomic local JSON store |
 | Validation | Node test runner, TypeScript, custom UI audit with Playwright |
-| Generated apps | React/TypeScript frontend and typed Node.js backend artifacts |
+| Generated apps | React/TypeScript frontend and Python FastAPI backend artifacts linked by `shared/api-contract.json` |
 
 ## Requirements
 
@@ -84,23 +84,27 @@ corepack enable
 corepack prepare pnpm@latest --activate
 ```
 
-## Gemini generation
+## Prompt-specific AI generation
 
-ForgeWeb works without an external model, but prompt-unique full-stack generation requires a Gemini API key. Copy `.env.example` to `.env.local` and set the key only on the server:
+ForgeWeb works without an external model, but prompt-unique generation uses Gemini for architecture and React frontend generation, then Groq (with OpenRouter fallback) for the Python FastAPI backend. Copy `.env.example` to `.env.local` and set rotated keys only on the server:
 
 ```powershell
 Copy-Item .env.example .env.local
 ```
 
 ```dotenv
-GEMINI_API_KEY=your_key_here
-FORGEWEB_GEMINI_MODEL=gemini-3.7-flash
-FORGEWEB_GENERATION_MODE=gemini
+GROQ_API_KEY=your_rotated_key_here
+OPENROUTER_API_KEY=your_rotated_key_here
+GEMINI_API_KEY=your_rotated_key_here
+FORGEWEB_GROQ_MODEL=qwen/qwen3.8-27b
+FORGEWEB_OPENROUTER_MODEL=openai/gpt-5.3-codex
+FORGEWEB_GEMINI_MODEL=gemini-3-flash-preview
+FORGEWEB_GENERATION_MODE=auto
 ```
 
-Vite loads `.env.local` before it constructs the embedded development API. The key is sent to Google only from the Node server through the `x-goog-api-key` header; it is never returned to the browser, written to generated projects, or included in ZIP exports.
+Vite loads `.env.local` before it constructs the embedded development API. Provider keys remain in the Node server and are never returned to the browser, written to generated projects, or included in ZIP exports. The run commands use Node's system CA store for secure provider connections on inspected Windows networks; TLS verification remains enabled.
 
-The provider performs two schema-constrained calls: architecture planning before confirmation and modular code generation after confirmation. See [the master generation prompt](./docs/MASTER_GENERATION_PROMPT.md).
+The provider pipeline performs schema-constrained architecture planning before confirmation and modular code generation after confirmation. See [the master generation prompt](./docs/MASTER_GENERATION_PROMPT.md).
 
 ## Quick start
 
@@ -122,7 +126,7 @@ Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 3. Review the generated requirements, architecture summary, capability sources, and `ARCHITECTURE.md`.
 4. Select **Edit prompt** to revise the original request, or **Confirm requirements & generate** to approve it.
 5. Watch frontend generation, backend generation, review, validation, and graph synchronization complete.
-6. Switch between **Files**, **Preview**, **Database**, and **Versions** in the generated project workspace.
+6. Switch between **Files**, **Preview**, **Database**, and **Versions**. Select any generated file to inspect and copy its complete stored source.
 7. Use **Edit with AI** for a scoped change, restore any prior version, or validate and create a ZIP.
 8. Reload the page and use **My Projects** to reopen the persisted workspace.
 
@@ -198,7 +202,7 @@ server/                      Local generation control plane
   product-intent.ts          Prompt domain, product-name, and entity inference
   generated-commerce.ts      Dedicated responsive marketplace generator
   generation/master-prompt.ts  Prompt-specific planning and implementation policy
-  providers/generation-provider.ts  Gemini REST adapter and manifest validation
+  providers/generation-provider.ts  Groq, OpenRouter, Gemini, routing, and manifest validation
   project-workspace.ts       Preview, scoped edit, version, restore, and export service
   zip.ts                     Dependency-free ZIP writer for stored project files
   policy.ts                  Bounded engineering-agent policy
@@ -228,6 +232,9 @@ Production identity, external model providers, isolated build workers, PostgreSQ
 - [Project workspace implementation plan](./docs/PROJECT_WORKSPACE_IMPLEMENTATION_PLAN.md)
 - [Architecture decisions and operating model](./docs/README.md)
 - [Third-party notices](./THIRD_PARTY_NOTICES.md)
+- [Latest research paper (PDF)](./research-paper/ForgeWeb_Updated_IEEE_References.pdf)
+- [Research paper LaTeX and reference notes](./research-paper/README-Supplied-References.md)
+- [Phase 2 review presentation](./ForgeWeb_Phase_2_Review_Completed.pptx)
 
 ## Security note
 

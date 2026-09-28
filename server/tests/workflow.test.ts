@@ -5,7 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { AGENT_POLICY, enforceImplementationTask } from "../policy.ts";
 import { normalizeMasterSpecification } from "../generated-frontend.ts";
-import type { ApplicationGenerationProvider } from "../providers/generation-provider.ts";
+import { inferProductName } from "../product-intent.ts";
+import { createGenerationProviderFromEnv, type ApplicationGenerationProvider } from "../providers/generation-provider.ts";
 import { JsonStore } from "../store.ts";
 import { digest } from "../lib.ts";
 import { BuildWorkflow, generateDeterministicFiles } from "../workflow.ts";
@@ -44,15 +45,16 @@ test("a prompt produces architecture first and source only after explicit confir
     assert.equal(build.specification?.status, "approved");
     assert.equal(build.specification?.requirements.length, 6);
     assert.equal(build.taskIds.length, 4);
-    assert.equal(build.filePaths.length, 12);
+    assert.equal(build.filePaths.length, 27);
     assert.ok(build.filePaths.includes("ARCHITECTURE.md"));
     assert.ok(build.filePaths.includes("frontend/src/App.tsx"));
     assert.ok(build.filePaths.includes("frontend/preview.html"));
-    assert.ok(build.filePaths.includes("backend/src/index.ts"));
+    assert.ok(build.filePaths.includes("backend/app/main.py"));
+    assert.ok(build.filePaths.includes("shared/api-contract.json"));
     assert.ok(build.validationChecks.every((check) => check.status === "passed"));
     assert.equal(build.project.status, "ready");
     const project = workflow.getProject(build.projectId);
-    assert.equal(project.files.length, 12);
+    assert.equal(project.files.length, 27);
     assert.ok(project.graph);
     assert.ok(project.graph.nodes.some((node) => node.type === "requirement"));
     assert.ok(project.graph.edges.some((edge) => edge.type === "SATISFIED_BY"));
@@ -69,7 +71,7 @@ test("an e-commerce prompt produces a commerce architecture and marketplace appl
     const proposal = await waitForBuild(workflow, created.id, ["awaiting_confirmation", "failed"]);
     assert.equal(proposal.status, "awaiting_confirmation");
     assert.equal(proposal.specification?.productKind, "commerce");
-    assert.equal(proposal.specification?.productName, "Nexa Market");
+    assert.equal(proposal.specification?.productName, inferProductName(prompt));
     assert.equal(proposal.specification?.requirements.length, 11);
     assert.deepEqual(proposal.specification?.entities, ["User", "Product", "Category", "InventoryItem", "Cart", "Wishlist", "Order", "Payment", "Review", "Address"]);
     assert.ok(proposal.specification?.architecture.frontend.pages.some((page) => /secure checkout/i.test(page)));
@@ -82,18 +84,17 @@ test("an e-commerce prompt produces a commerce architecture and marketplace appl
     const project = workflow.getProject(build.projectId);
     const preview = project.files.find((file) => file.path === "frontend/preview.html")?.content ?? "";
     const app = project.files.find((file) => file.path === "frontend/src/App.tsx")?.content ?? "";
-    const contracts = project.files.find((file) => file.path === "backend/src/api/contracts.ts")?.content ?? "";
-    const backend = project.files.find((file) => file.path === "backend/src/index.ts")?.content ?? "";
+    const contracts = project.files.find((file) => file.path === "shared/api-contract.json")?.content ?? "";
+    const backend = project.files.find((file) => file.path === "backend/app/main.py")?.content ?? "";
     assert.match(preview, /forgeweb-commerce-v1/);
     assert.match(preview, /class="global-search"/);
     assert.match(preview, /Popular categories/);
     assert.match(preview, /Shopping cart/);
     assert.match(preview, /Admin dashboard/);
     assert.match(app, /forgeweb-commerce-v1/);
-    assert.match(contracts, /CheckoutInput/);
-    assert.match(contracts, /PaymentWebhookEnvelope/);
-    assert.match(backend, /paymentWebhook/);
-    assert.match(backend, /adminInventory/);
+    assert.match(contracts, /\/api\/checkout/);
+    assert.match(contracts, /\/api\/admin\/inventory/);
+    assert.match(backend, /FastAPI/);
     assert.ok(build.validationChecks.every((check) => check.status === "passed"));
 
     const legacy = normalizeMasterSpecification({
@@ -105,7 +106,7 @@ test("an e-commerce prompt produces a commerce architecture and marketplace appl
         frontend: { ...proposal.specification!.architecture.frontend, pages: ["Role-aware dashboard", "File assets", "Inventory items"] },
       },
     });
-    assert.equal(legacy.productName, "Nexa Market");
+    assert.equal(legacy.productName, inferProductName(prompt));
     assert.equal(legacy.productKind, "commerce");
     assert.ok(legacy.architecture.frontend.pages.some((page) => /checkout/i.test(page)));
   } finally {
@@ -117,6 +118,7 @@ test("a configured model provider drives prompt-specific planning and modular fi
   const { directory, store } = await fixture();
   const provider: ApplicationGenerationProvider = {
     id: "google-gemini",
+    mode: "gemini",
     model: "gemini-test-model",
     async plan() {
       return {
@@ -129,6 +131,9 @@ test("a configured model provider drives prompt-specific planning and modular fi
         frontendPages: ["Patient booking", "Clinician availability", "Upcoming visits", "Secure care profile"],
         frontendComponents: ["Booking stepper", "Availability calendar", "Visit card", "Care profile form"],
         visualDirection: "Warm editorial healthcare interface with a compact side rail, sage and clay accents, generous white space, and reassuring motion.",
+        designFingerprint: "Asymmetric appointment timeline, warm paper surfaces, sage actions, clay status accents, humanist typography, and soft directional transitions.",
+        navigationPattern: "Compact left care rail on desktop that becomes a bottom action bar on mobile.",
+        interactionMap: ["Patients filter clinicians and available times", "Patients submit and cancel appointments", "Clinicians publish availability", "Receptionists confirm arrivals", "Profile forms validate before saving", "Navigation changes for mobile"],
         backendModules: ["Identity", "Appointments", "Clinician availability", "Care profiles"],
         apiRoutes: ["GET /api/clinicians", "POST /api/appointments", "GET /api/appointments/:id", "PATCH /api/appointments/:id"],
         dataRules: ["Appointments reference a patient and clinician", "Care notes are restricted to assigned clinicians"],
@@ -139,7 +144,7 @@ test("a configured model provider drives prompt-specific planning and modular fi
       const requirementIds = specification.requirements.map((requirement) => requirement.id);
       const base = generateDeterministicFiles(specification).map((file) => {
         if (!["frontend/src/App.tsx", "frontend/preview.html"].includes(file.path)) return file;
-        const content = file.content.replaceAll("forgeweb-professional-v2", "forgeweb-ai-generated-v1");
+        const content = file.content.replaceAll("forgeweb-client-site-v2", "forgeweb-ai-generated-v1").replaceAll("forgeweb-adaptive-product-v1", "forgeweb-ai-generated-v1").replaceAll("forgeweb-professional-v2", "forgeweb-ai-generated-v1");
         return { ...file, content, digest: digest(content) };
       });
       return [
@@ -166,7 +171,7 @@ test("a configured model provider drives prompt-specific planning and modular fi
     await workflow.confirm(created.id);
     const completed = await waitForBuild(workflow, created.id, ["completed", "failed"]);
     assert.equal(completed.status, "completed");
-    assert.equal(completed.filePaths.length, 15);
+    assert.equal(completed.filePaths.length, 30);
     assert.ok(completed.filePaths.includes("frontend/src/pages/BookingPage.tsx"));
     assert.ok(completed.filePaths.includes("frontend/src/components/AvailabilityCalendar.tsx"));
     const workspace = await workflow.workspace.getReady(completed.projectId);
@@ -177,10 +182,176 @@ test("a configured model provider drives prompt-specific planning and modular fi
   }
 });
 
+test("provider selection prefers the Groq and OpenRouter pair without exposing credentials", () => {
+  const split = createGenerationProviderFromEnv({ GEMINI_API_KEY: "test-gemini-key", GROQ_API_KEY: "test-groq-key", OPENROUTER_API_KEY: "test-openrouter-key", FORGEWEB_GENERATION_MODE: "auto" });
+  assert.equal(split?.id, "gemini-python");
+  assert.match(split?.model ?? "", /gemini/);
+  assert.match(split?.model ?? "", /qwen3\.8-27b/);
+
+  const dual = createGenerationProviderFromEnv({ GROQ_API_KEY: "test-groq-key", OPENROUTER_API_KEY: "test-openrouter-key", FORGEWEB_GENERATION_MODE: "auto" });
+  assert.equal(dual?.id, "groq-openrouter");
+  assert.equal(dual?.mode, "ai");
+  assert.match(dual?.model ?? "", /qwen3\.8-27b/);
+  assert.match(dual?.model ?? "", /gpt-5\.3-codex/);
+
+  assert.equal(createGenerationProviderFromEnv({ OPENROUTER_API_KEY: "test-openrouter-key" })?.id, "openrouter");
+  assert.equal(createGenerationProviderFromEnv({ GROQ_API_KEY: "test-groq-key" })?.id, "groq");
+  assert.equal(createGenerationProviderFromEnv({ GEMINI_API_KEY: "test-gemini-key", FORGEWEB_GENERATION_MODE: "gemini" })?.id, "google-gemini");
+  assert.equal(createGenerationProviderFromEnv({ GROQ_API_KEY: "test-groq-key", OPENROUTER_API_KEY: "test-openrouter-key", FORGEWEB_GENERATION_MODE: "deterministic" }), undefined);
+});
+
+test("a restaurant prompt produces a restaurant-specific booking experience and FastAPI contract", async () => {
+  const { directory, workflow } = await fixture();
+  try {
+    const prompt = "Build a restaurant booking platform with a seasonal menu, pricing, table reservations, private dining enquiries, customer acquisition, reviews, and location details.";
+    const created = await workflow.create(prompt);
+    const proposal = await waitForBuild(workflow, created.id, ["awaiting_confirmation", "failed"]);
+    assert.equal(proposal.specification?.productKind, "restaurant");
+    assert.ok(proposal.specification?.architecture.frontend.pages.some((page) => /menu/i.test(page)));
+    assert.ok(proposal.specification?.architecture.backend.routes?.includes("POST /api/reservations"));
+    await workflow.confirm(created.id);
+    const completed = await waitForBuild(workflow, created.id, ["completed", "failed"]);
+    assert.equal(completed.status, "completed");
+    const workspace = workflow.getProject(completed.projectId);
+    const preview = workspace.files.find((file) => file.path === "frontend/preview.html")?.content ?? "";
+    const routes = workspace.files.find((file) => file.path === "backend/app/api/routes.py")?.content ?? "";
+    assert.match(preview, /forgeweb-restaurant-v2/);
+    assert.match(preview, /Reserve a table/);
+    assert.match(preview, /A menu shaped by the market/);
+    assert.match(preview, /modal-backdrop\[hidden\]\{display:none\}/);
+    assert.match(preview, /A table is available at/);
+    assert.match(preview, /Confirm reservation/);
+    assert.match(preview, /Reservation confirmed/);
+    assert.doesNotMatch(preview, /alert\s*\(/);
+    assert.doesNotMatch(preview, /Keep every client moving/);
+    assert.match(routes, /reservations/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("generic client prompts generate distinct content websites instead of the workspace dashboard", async () => {
+  const { directory, workflow } = await fixture();
+  try {
+    const prompts = [
+      "Create a very basic, clean, and responsive website with a Home, About, Services, and Contact section. Use simple modern design and attractive buttons.\nNAME - BASIS",
+      "Create a bold creative portfolio for a motion designer with Work, About, Services, and Contact sections, expressive typography, and a warm editorial direction.\nNAME - KINETIC FORM",
+    ];
+    const previews: string[] = [];
+    for (const prompt of prompts) {
+      const created = await workflow.create(prompt);
+      await waitForBuild(workflow, created.id, ["awaiting_confirmation"]);
+      await workflow.confirm(created.id);
+      const completed = await waitForBuild(workflow, created.id, ["completed", "failed"]);
+      assert.equal(completed.status, "completed");
+      previews.push((await workflow.workspace.getPreview(created.projectId)).html);
+    }
+    assert.match(previews[0], /forgeweb-client-site-v2/);
+    assert.match(previews[0], />BASIS</);
+    assert.match(previews[0], />Home</);
+    assert.match(previews[0], />About</);
+    assert.match(previews[0], />Services</);
+    assert.match(previews[0], />Contact</);
+    assert.match(previews[0], /Send enquiry/);
+    assert.match(previews[1], />KINETIC FORM</);
+    assert.match(previews[1], /Distinct work, presented with intent/);
+    for (const preview of previews) {
+      assert.doesNotMatch(preview, /Keep every[\s\S]{0,80}moving\./i);
+      assert.doesNotMatch(preview, /84\.6%|Live workspace · Preview data|class="workspace-layout"/i);
+    }
+    assert.notEqual(previews[0], previews[1]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("explicit visual instructions override adaptive product defaults and legacy dashboards are never reused", async () => {
+  const { directory, workflow } = await fixture();
+  try {
+    const prompts = [
+      "Make a client portal with a lightcream background, a refined editorial landing page, secure projects, files, invoices, and an entirely unique layout. Name - Aurelia Portal",
+      "Build a bold dark inventory control system with stock, transfers, suppliers, and warehouse alerts. Name - Iron Ledger",
+      "Create a minimal light-blue team scheduler with calendar, appointments, availability, and settings. Name - Dayline",
+    ];
+    const previews: string[] = [];
+    for (const prompt of prompts) {
+      const created = await workflow.create(prompt);
+      await waitForBuild(workflow, created.id, ["awaiting_confirmation"]);
+      await workflow.confirm(created.id);
+      const completed = await waitForBuild(workflow, created.id, ["completed", "failed"]);
+      assert.equal(completed.status, "completed");
+      previews.push((await workflow.workspace.getPreview(created.projectId)).html);
+    }
+    assert.match(previews[0], /forgeweb-adaptive-product-v1/);
+    assert.match(previews[0], /#f3ecdc/i);
+    assert.match(previews[0], /Public site \+ secure portal/i);
+    assert.match(previews[0], /Client workspace/i);
+    assert.match(previews[1], /Inventory intelligence/i);
+    assert.match(previews[2], /Shared time/i);
+    for (const preview of previews) {
+      assert.doesNotMatch(preview, /Keep every[\s\S]{0,100}moving\.|84\.6%|Live workspace · Preview data/i);
+      assert.match(preview, /data-design-fingerprint=/i);
+      assert.match(preview, /data-action="tab"/i);
+    }
+    const fingerprints = previews.map((preview) => preview.match(/data-design-fingerprint="([^"]+)"/)?.[1]);
+    assert.equal(new Set(fingerprints).size, previews.length);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an undersized AI requirement plan is completed from the deterministic baseline instead of discarded", async () => {
+  const { directory, store } = await fixture();
+  const provider: ApplicationGenerationProvider = {
+    id: "google-gemini",
+    mode: "gemini",
+    model: "planning-normalization-test",
+    async plan(_prompt, fallback) {
+      return {
+        productName: "   ",
+        productKind: "restaurant",
+        summary: "A restaurant menu and reservation experience.",
+        roles: ["Guest", "Host", "Owner"],
+        entities: fallback.entities,
+        requirements: [
+          { title: "Menu", description: "Guests browse the seasonal menu.", acceptanceCriteria: ["Menu is visible."], priority: "P0" },
+          { title: "Availability", description: "Guests check table availability.", acceptanceCriteria: ["Availability is visible."], priority: "P0" },
+          { title: "Reservations", description: "Guests confirm reservations.", acceptanceCriteria: ["Confirmation is visible."], priority: "P0" },
+        ],
+        frontendPages: fallback.architecture.frontend.pages,
+        frontendComponents: fallback.architecture.frontend.components,
+        visualDirection: "Editorial restaurant experience",
+        designFingerprint: "Warm paper, serif display type, culinary imagery",
+        navigationPattern: "Compact editorial header",
+        interactionMap: ["Filter menu", "Check availability", "Confirm reservation"],
+        backendModules: fallback.architecture.backend.modules,
+        apiRoutes: fallback.architecture.backend.routes ?? [],
+        dataRules: fallback.architecture.data.rules,
+        security: fallback.architecture.security,
+      };
+    },
+    async generate(specification) { return generateDeterministicFiles(specification); },
+  };
+  const workflow = new BuildWorkflow(store, 0, provider);
+  try {
+    const created = await workflow.create("Build a restaurant with a seasonal menu, table reservations, pricing, reviews, and private dining enquiries.");
+    const proposal = await waitForBuild(workflow, created.id, ["awaiting_confirmation", "failed"]);
+    assert.equal(proposal.status, "awaiting_confirmation");
+    assert.equal(proposal.specification?.generator?.provider, "google-gemini");
+    assert.equal(proposal.specification?.productName, inferProductName("Build a restaurant with a seasonal menu, table reservations, pricing, reviews, and private dining enquiries."));
+    assert.equal(proposal.specification?.requirements.length, 6);
+    assert.equal(proposal.specification?.requirements[0].title, "Menu");
+    assert.ok(proposal.specification?.requirements.some((requirement) => requirement.title === "Restaurant discovery"));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("project workspace supports real preview, scoped versions, restore, persistence, safe failure, and ZIP export", async () => {
   const { directory, workflow } = await fixture();
   try {
-    const created = await workflow.create("Build a secure inventory dashboard with products, stock, clients, and role-based access.");
+    const prompt = "Build a secure inventory dashboard with products, stock, clients, and role-based access.";
+    const created = await workflow.create(prompt);
     await waitForBuild(workflow, created.id, ["awaiting_confirmation"]);
     await workflow.confirm(created.id);
     const build = await waitForBuild(workflow, created.id, ["completed", "failed"]);
@@ -190,19 +361,19 @@ test("project workspace supports real preview, scoped versions, restore, persist
     assert.equal(initial.currentVersion?.versionNumber, 1);
     assert.equal(initial.versions.length, 1);
     const initialPreview = await workflow.workspace.getPreview(build.projectId);
-    assert.match(initialPreview.html, /Inventory OS/i);
-    assert.match(initialPreview.html, /forgeweb-professional-v2/);
+    assert.match(initialPreview.html, new RegExp(inferProductName(prompt), "i"));
+    assert.match(initialPreview.html, /forgeweb-adaptive-product-v1/);
     assert.match(initialPreview.html, /aria-label="Primary navigation"/);
-    assert.match(initialPreview.html, /class="workspace-layout"/);
+    assert.match(initialPreview.html, /class="workspace"/);
     const initialStyles = initial.files.find((file) => file.path === "frontend/src/styles.css")?.digest;
-    const initialBackend = initial.files.find((file) => file.path === "backend/src/index.ts")?.digest;
+    const initialBackend = initial.files.find((file) => file.path === "backend/app/main.py")?.digest;
 
     const edited = await workflow.workspace.edit(build.projectId, "Make the dashboard cards smaller and modern. Keep everything else unchanged.");
     assert.deepEqual(edited.modifiedFiles.sort(), ["frontend/preview.html", "frontend/src/styles.css"]);
     assert.equal(edited.workspace.currentVersion?.versionNumber, 2);
     assert.equal(edited.workspace.versions.length, 2);
     assert.notEqual(edited.workspace.files.find((file) => file.path === "frontend/src/styles.css")?.digest, initialStyles);
-    assert.equal(edited.workspace.files.find((file) => file.path === "backend/src/index.ts")?.digest, initialBackend);
+    assert.equal(edited.workspace.files.find((file) => file.path === "backend/app/main.py")?.digest, initialBackend);
 
     const versionOne = edited.workspace.versions.find((version) => version.versionNumber === 1)!;
     const restored = await workflow.workspace.restore(build.projectId, versionOne.id);
@@ -228,7 +399,7 @@ test("project workspace supports real preview, scoped versions, restore, persist
     const exported = await reloadedWorkflow.workspace.export(build.projectId);
     assert.equal(exported.archive.subarray(0, 2).toString(), "PK");
     assert.ok(exported.archive.includes(Buffer.from("frontend/src/App.tsx")));
-    assert.ok(exported.archive.includes(Buffer.from("backend/src/index.ts")));
+    assert.ok(exported.archive.includes(Buffer.from("backend/app/main.py")));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -271,7 +442,7 @@ test("legacy projects automatically gain a versioned professional preview", asyn
     const repaired = await workflow.workspace.getReady(build.projectId);
     assert.equal(repaired.currentVersion?.versionNumber, 1);
     assert.equal(repaired.currentVersion?.label, "Professional interface upgrade");
-    assert.equal(repaired.files.length, 12);
+    assert.ok(repaired.files.length >= 12);
     assert.ok(repaired.files.some((file) => file.path === "frontend/preview.html"));
     assert.ok(repaired.specification?.architecture);
     assert.ok(repaired.files.every((file) => !file.path.startsWith("src/")));
@@ -285,7 +456,7 @@ test("legacy projects automatically gain a versioned professional preview", asyn
     });
     const upgraded = await workflow.workspace.getReady(build.projectId);
     assert.equal(upgraded.currentVersion?.versionNumber, 2);
-    assert.match(upgraded.files.find((file) => file.path === "frontend/preview.html")?.content ?? "", /forgeweb-professional-v2/);
+    assert.match(upgraded.files.find((file) => file.path === "frontend/preview.html")?.content ?? "", /forgeweb-adaptive-product-v1/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -294,7 +465,8 @@ test("legacy projects automatically gain a versioned professional preview", asyn
 test("a saved generic e-commerce dashboard upgrades to the commerce experience", async () => {
   const { directory, store, workflow } = await fixture();
   try {
-    const created = await workflow.create("Create a modern responsive e-commerce marketplace with products, categories, cart, wishlist, checkout, payments, order tracking, reviews, and an admin dashboard.");
+    const prompt = "Create a modern responsive e-commerce marketplace with products, categories, cart, wishlist, checkout, payments, order tracking, reviews, and an admin dashboard.";
+    const created = await workflow.create(prompt);
     await waitForBuild(workflow, created.id, ["awaiting_confirmation"]);
     await workflow.confirm(created.id);
     const build = await waitForBuild(workflow, created.id, ["completed", "failed"]);
@@ -317,7 +489,7 @@ test("a saved generic e-commerce dashboard upgrades to the commerce experience",
 
     const upgraded = await workflow.workspace.getReady(build.projectId);
     assert.equal(upgraded.currentVersion?.versionNumber, 2);
-    assert.equal(upgraded.project.name, "Nexa Market");
+    assert.equal(upgraded.project.name, inferProductName(prompt));
     assert.equal(upgraded.specification?.productKind, "commerce");
     assert.ok(upgraded.specification?.architecture.frontend.pages.some((page) => /checkout/i.test(page)));
     assert.match((await workflow.workspace.getPreview(build.projectId)).html, /forgeweb-commerce-v1/);

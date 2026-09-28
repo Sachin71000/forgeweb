@@ -4,12 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "dev:api": "node --experimental-strip-types server/index.ts",
+    "dev": "node --use-system-ca ./node_modules/vite/bin/vite.js --host 127.0.0.1",
+    "dev:api": "node --use-system-ca --experimental-strip-types server/index.ts",
     "build": "tsc -b && vite build && tsc -p tsconfig.server.build.json",
     "build:api": "tsc -p tsconfig.server.build.json",
-    "start:api": "node dist-server/index.js",
-    "preview": "vite preview --host 127.0.0.1",
+    "start:api": "node --use-system-ca dist-server/index.js",
+    "preview": "node --use-system-ca ./node_modules/vite/bin/vite.js preview --host 127.0.0.1",
     "typecheck": "tsc -b --pretty false && tsc -p tsconfig.server.json --pretty false",
     "test": "node --experimental-strip-types --test server/tests/*.test.ts"
   },

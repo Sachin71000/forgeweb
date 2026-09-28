@@ -19,7 +19,7 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
-import { lazy, Suspense, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { gsap } from "gsap";
 import BorderGlow from "./components/react-bits/BorderGlow";
@@ -30,10 +30,10 @@ import { LanguageShowcase } from "./components/LanguageShowcase";
 import SiteNav from "./components/SiteNav";
 import BuildProposal from "./components/BuildProposal";
 import ProjectLibrary from "./components/ProjectLibrary";
+import FloatingLines from "./components/react-bits/FloatingLines";
 import { confirmBuild, createBuild, waitForBuild, type BuildResponse } from "./lib/forgeweb-api";
 
 const floatingLinesGradient = ["#50c7f0", "#000000", "#0ac0e0"];
-const FloatingLines = lazy(() => import("./components/react-bits/FloatingLines"));
 
 const quickPrompts = [
   "Client portal",
@@ -567,18 +567,17 @@ export default function App() {
     <AnimatePresence mode="wait">
       <main className="site-shell min-h-dvh font-sans text-white">
         <div className="floating-lines-backdrop" aria-hidden="true">
-          <Suspense fallback={<div className="floating-lines-fallback size-full" />}>
-            <FloatingLines
-              linesGradient={floatingLinesGradient}
-              animationSpeed={1}
-              interactive
-              bendRadius={5}
-              bendStrength={-2}
-              mouseDamping={0.03}
-              parallax
-              parallaxStrength={0.1}
-            />
-          </Suspense>
+          <FloatingLines
+            linesGradient={floatingLinesGradient}
+            lineCount={[4, 4, 4]}
+            animationSpeed={1}
+            interactive
+            bendRadius={5}
+            bendStrength={-2}
+            mouseDamping={0.03}
+            parallax
+            parallaxStrength={0.1}
+          />
         </div>
         <Hero />
         <SignalBar />

@@ -20,7 +20,7 @@ function sendPreview(response: ServerResponse, html: string, versionId: string):
   response.writeHead(200, {
     "content-type": "text/html; charset=utf-8",
     "cache-control": "no-store",
-    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; script-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; font-src data:; script-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
     "x-content-type-options": "nosniff",
     "x-forgeweb-version": versionId,
   });
@@ -158,6 +158,11 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
         return;
       }
       const projectMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)$/);
+      if (method === "DELETE" && projectMatch) {
+        const deleted = await workflow.deleteProject(decodeURIComponent(projectMatch[1]));
+        send(response, 200, { deleted });
+        return;
+      }
       if (method === "GET" && projectMatch) {
         send(response, 200, workflow.getProject(decodeURIComponent(projectMatch[1])));
         return;

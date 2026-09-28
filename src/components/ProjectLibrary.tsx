@@ -1,6 +1,6 @@
-import { Check, FolderOpen, History, LoaderCircle, Menu, Plus, RefreshCw, X } from "lucide-react";
+import { Check, FolderOpen, History, LoaderCircle, Menu, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { getBuild, getProjectWorkspace, listProjects, type BuildResponse, type ProjectSummary } from "../lib/forgeweb-api";
+import { deleteProject, getBuild, getProjectWorkspace, listProjects, type BuildResponse, type ProjectSummary } from "../lib/forgeweb-api";
 
 type ProjectLibraryProps = {
   activeProjectId?: string;
@@ -14,6 +14,7 @@ export default function ProjectLibrary({ activeProjectId, refreshToken, onOpen, 
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [opening, setOpening] = useState("");
+  const [deleting, setDeleting] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
@@ -46,6 +47,21 @@ export default function ProjectLibrary({ activeProjectId, refreshToken, onOpen, 
     }
   };
 
+  const removeProject = async (project: ProjectSummary) => {
+    if (!window.confirm(`Delete “${project.name}” and all of its generated versions? This cannot be undone.`)) return;
+    setDeleting(project.id);
+    setError("");
+    try {
+      await deleteProject(project.id);
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+      if (project.id === activeProjectId) onNewChat();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Project could not be deleted.");
+    } finally {
+      setDeleting("");
+    }
+  };
+
   return (
     <div className="project-library">
       <button type="button" className="project-library-trigger" onClick={() => setOpen(true)} aria-label="My Projects" aria-expanded={open} aria-controls="project-history-drawer">
@@ -61,12 +77,13 @@ export default function ProjectLibrary({ activeProjectId, refreshToken, onOpen, 
             {error && <div className="workspace-error"><strong>Project storage unavailable.</strong><p>{error}</p></div>}
             <div className="project-library-list">
               {projects.map((project) => (
-                <article className={project.id === activeProjectId ? "is-active" : ""} key={project.id}>
-                  <button type="button" disabled={!project.currentBuildId || opening === project.id} onClick={() => void openProject(project)}>
+                <article className={project.id === activeProjectId ? "is-active" : ""} data-project-id={project.id} key={project.id}>
+                  <button className="project-history-open" type="button" disabled={!project.currentBuildId || opening === project.id || deleting === project.id} onClick={() => void openProject(project)}>
                     <span className="project-history-icon">{opening === project.id ? <LoaderCircle className="animate-spin" /> : <FolderOpen />}</span>
                     <span className="project-history-copy"><strong>{project.name}</strong><small>{project.status.replaceAll("_", " ")} · v{project.currentVersionNumber ?? "—"}</small></span>
                     {project.id === activeProjectId && <Check className="project-history-current" />}
                   </button>
+                  <button className="project-history-delete" type="button" disabled={deleting === project.id} aria-label={`Delete ${project.name}`} onClick={() => void removeProject(project)}>{deleting === project.id ? <LoaderCircle className="animate-spin" /> : <Trash2 />}</button>
                 </article>
               ))}
               {loading && projects.length === 0 && <p className="workspace-muted"><LoaderCircle className="animate-spin" /> Loading history…</p>}

@@ -1,0 +1,17 @@
+\begin{tikzpicture}[x=1cm,y=1.25cm,block/.append style={font=\sffamily\scriptsize,inner sep=4pt}]
+\node[gate,text width=6.2cm] (spec) at (0,0) {Approved specification + ARCHITECTURE.md};
+\node[data,text width=6.2cm] (contract) at (0,-.92) {shared/api-contract.json};
+\node[block,text width=2.65cm,minimum height=1.25cm] (front) at (-1.85,-2.27) {frontend/\\\scriptsize Gemini: React, styles\\and API client};
+\node[gate,text width=2.65cm,minimum height=1.25cm] (back) at (1.85,-2.27) {backend/\\\scriptsize Local LLaMA (proposed)\\FastAPI, schemas, tests};
+\draw[flow] (spec)--(contract);
+\draw[flow] (contract.south)--++(0,-.19)-|(front.north);
+\draw[flow] (contract.south)--++(0,-.19)-|(back.north);
+\node[data,text width=6.2cm] (version) at (0,-3.62) {Stored version: files, digests and requirement links};
+\draw[flow] (front.south)--++(0,-.25)-|(version.north);
+\draw[flow] (back.south)--++(0,-.25)-|(version.north);
+\node[block,text width=2.65cm,minimum height=1.1cm] (prev) at (-1.85,-5.05) {HTML preview\\\scriptsize Sandboxed iframe\\Separate preview document};
+\node[gate,text width=2.65cm,minimum height=1.1cm] (run) at (1.85,-5.05) {Exported application\\\scriptsize Run React + Python\\Configure data services};
+\draw[flow] (version.south)--++(0,-.22)-|(prev.north);
+\draw[flow] (version.south)--++(0,-.22)-|(run.north);
+\node[tag,align=center] at (0,-6.02) {PREVIEW SUCCESS DOES NOT PROVE BACKEND EXECUTION};
+\end{tikzpicture}

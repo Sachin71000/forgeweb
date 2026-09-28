@@ -1,17 +1,25 @@
 import type { MasterSpecification } from "./domain.ts";
+import { buildAdaptiveFrontend, GENERATED_ADAPTIVE_TEMPLATE } from "./generated-adaptive.ts";
 import { buildCommerceFrontend, GENERATED_COMMERCE_TEMPLATE } from "./generated-commerce.ts";
+import { buildGenericFrontend, GENERATED_GENERIC_TEMPLATE } from "./generated-generic.ts";
+import { buildRestaurantFrontend, GENERATED_RESTAURANT_TEMPLATE } from "./generated-restaurant.ts";
 import { detectProductKind, inferDomainEntities, inferProductName } from "./product-intent.ts";
 
 export const GENERATED_FRONTEND_TEMPLATE = "forgeweb-professional-v2";
 export const GENERATED_AI_TEMPLATE = "forgeweb-ai-generated-v1";
 
+export function expectedLocalFrontendTemplate(specification: MasterSpecification): string {
+  const kind = specification.productKind ?? detectProductKind(specification.prompt);
+  return kind === "commerce" ? GENERATED_COMMERCE_TEMPLATE : kind === "restaurant" ? GENERATED_RESTAURANT_TEMPLATE : kind === "generic" ? GENERATED_GENERIC_TEMPLATE : GENERATED_ADAPTIVE_TEMPLATE;
+}
+
 export function expectedFrontendTemplate(specification: MasterSpecification): string {
-  if (specification.generator?.mode === "gemini") return GENERATED_AI_TEMPLATE;
-  return (specification.productKind ?? detectProductKind(specification.prompt)) === "commerce" ? GENERATED_COMMERCE_TEMPLATE : GENERATED_FRONTEND_TEMPLATE;
+  if (specification.generator?.mode === "gemini" || specification.generator?.mode === "ai") return GENERATED_AI_TEMPLATE;
+  return expectedLocalFrontendTemplate(specification);
 }
 
 export function hasGeneratedFrontendMarker(content: string): boolean {
-  return content.includes(GENERATED_FRONTEND_TEMPLATE) || content.includes(GENERATED_COMMERCE_TEMPLATE) || content.includes(GENERATED_AI_TEMPLATE);
+  return content.includes(GENERATED_FRONTEND_TEMPLATE) || content.includes(GENERATED_ADAPTIVE_TEMPLATE) || content.includes(GENERATED_COMMERCE_TEMPLATE) || content.includes(GENERATED_RESTAURANT_TEMPLATE) || content.includes(GENERATED_GENERIC_TEMPLATE) || content.includes(GENERATED_AI_TEMPLATE);
 }
 
 export function normalizeMasterSpecification(specification: MasterSpecification): MasterSpecification {
@@ -155,6 +163,10 @@ function model(specification: MasterSpecification) {
 export function buildGeneratedFrontend(specification: MasterSpecification): { app: string; styles: string; preview: string } {
   specification = normalizeMasterSpecification(specification);
   if (specification.productKind === "commerce") return buildCommerceFrontend(specification);
+  if (specification.productKind === "restaurant") return buildRestaurantFrontend(specification);
+  if (specification.productKind === "generic") return buildGenericFrontend(specification);
+  return buildAdaptiveFrontend(specification);
+  /* Legacy fallback retained below only for migration marker recognition. */
   const view = model(specification);
   const productLiteral = JSON.stringify(specification.productName);
   const summaryLiteral = JSON.stringify(specification.summary);
@@ -197,7 +209,7 @@ export function buildGeneratedFrontend(specification: MasterSpecification): { ap
     '        <div className="preview-container nav-inner">',
     '          <a className="brand" href="#overview" aria-label={`${productName} home`}><span className="brand-mark">{brandInitials}</span><span>{productName}</span></a>',
     '          <nav className="nav-links" aria-label="Primary navigation">{navItems.map((item, index) => <a className={index === 0 ? "is-active" : ""} href={`#${item.toLowerCase().replaceAll(" ", "-")}`} key={item}>{item}</a>)}</nav>',
-    '          <div className="nav-actions"><button className="search-button" type="button"><span>Search</span><kbd>⌘ K</kbd></button><button className="avatar" type="button" aria-label="Open account menu">MC</button></div>',
+    '          <div className="nav-actions"><button className="search-button" type="button" aria-label="Search workspace"><span>Search</span><kbd>⌘ K</kbd></button><button className="avatar" type="button" aria-label="Open account menu">MC</button></div>',
     "        </div>",
     "      </header>",
     '      <main className="preview-container">',
@@ -242,6 +254,7 @@ export function buildGeneratedFrontend(specification: MasterSpecification): { ap
     ".workspace-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .68fr); gap: .8rem; } .workspace-card, .activity-card { min-width: 0; border: 1px solid rgba(255,255,255,.075); border-radius: 1.15rem; padding: 1.25rem; background: rgba(255,255,255,.025); } .section-heading h2 { margin: 0; font-size: 1.15rem; letter-spacing: -.035em; } .section-heading > a { color: #d8ff62; font-size: .62rem; }",
     ".record-table { margin-top: 1.3rem; overflow-x: auto; } .record-row { display: grid; grid-template-columns: minmax(180px,1.4fr) minmax(115px,.8fr) minmax(130px,.8fr) 88px; align-items: center; gap: .8rem; min-width: 650px; border-top: 1px solid rgba(255,255,255,.055); padding: .9rem .2rem; color: rgba(255,255,255,.42); font-size: .61rem; } .record-row.table-head { border: 0; padding-top: .25rem; color: rgba(255,255,255,.24); font-size: .52rem; text-transform: uppercase; } .record-row > strong { display: flex; align-items: center; gap: .65rem; color: rgba(255,255,255,.8); font-size: .65rem; } .record-row > strong > i { display: grid; width: 1.8rem; height: 1.8rem; flex: none; place-items: center; border-radius: .5rem; color: #d8ff62; background: rgba(216,255,98,.08); font-style: normal; } .progress { display: flex; align-items: center; gap: .5rem; } .progress > i { width: 58px; height: 3px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.08); } .progress b { display: block; height: 100%; border-radius: inherit; background: #79e5cd; } .status { width: max-content; border-radius: 99px; padding: .3rem .45rem; color: #79e5cd; background: rgba(121,229,205,.08); font-size: .52rem; } .status-review { color: #f1c879; background: rgba(241,200,121,.08); } .status-at-risk { color: #ff879e; background: rgba(255,135,158,.08); }",
     ".activity-card ol { display: grid; gap: 0; margin: 1.1rem 0 0; padding: 0; list-style: none; } .activity-card li { display: flex; gap: .65rem; border-top: 1px solid rgba(255,255,255,.055); padding: .8rem 0; } .activity-card li > i { display: grid; width: 1.75rem; height: 1.75rem; flex: none; place-items: center; border-radius: 50%; color: #101312; background: #b8c9c1; font: 750 .5rem ui-monospace, monospace; } .activity-card li:nth-child(2) > i { background: #d8ff62; } .activity-card li:nth-child(3) > i { background: #79e5cd; } .activity-card li p { display: flex; min-width: 0; flex-direction: column; gap: .22rem; margin: 0; } .activity-card li strong { overflow: hidden; color: rgba(255,255,255,.72); font-size: .6rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; } .activity-card li span, .activity-card > a { color: rgba(255,255,255,.28); font-size: .52rem; } .activity-card > a { display: flex; justify-content: space-between; border-top: 1px solid rgba(255,255,255,.055); padding-top: .9rem; color: #d8ff62; }",
+    ".preview-toast { position: fixed; z-index: 50; right: 1rem; bottom: 1rem; max-width: min(22rem,calc(100vw - 2rem)); transform: translateY(1rem); border: 1px solid rgba(216,255,98,.24); border-radius: .7rem; padding: .75rem .9rem; color: #eef7eb; background: rgba(13,20,18,.96); box-shadow: 0 20px 55px rgba(0,0,0,.38); font-size: .65rem; opacity: 0; pointer-events: none; transition: opacity .18s ease,transform .18s ease; } .preview-toast.is-visible { transform: translateY(0); opacity: 1; } .metric-card.is-selected { border-color: rgba(216,255,98,.42); background: rgba(216,255,98,.055); }",
     ".capability-section { padding-block: clamp(5rem, 10vw, 9rem); } .capability-section > .section-heading { align-items: flex-end; } .capability-section .section-heading h2 { max-width: 620px; margin-top: .55rem; font-size: clamp(2.3rem, 5vw, 4.6rem); line-height: .95; letter-spacing: -.06em; } .capability-section .section-heading > p { max-width: 390px; margin: 0; color: rgba(255,255,255,.4); font-size: .72rem; line-height: 1.65; } .generated-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: .75rem; margin-top: 2.4rem; } .capability-card { position: relative; min-height: 260px; border: 1px solid rgba(255,255,255,.075); border-radius: 1rem; padding: 1.25rem; background: linear-gradient(145deg, rgba(255,255,255,.04), rgba(255,255,255,.018)); } .capability-card > span { color: #d8ff62; font: 700 .55rem ui-monospace, monospace; } .capability-card > i { position: absolute; top: 1.15rem; right: 1.2rem; color: rgba(255,255,255,.2); font-size: 1.4rem; font-style: normal; } .capability-card h3 { max-width: 14ch; margin: 5.4rem 0 .75rem; font-size: 1.18rem; line-height: 1.08; letter-spacing: -.035em; } .capability-card p { margin: 0; color: rgba(255,255,255,.35); font-size: .62rem; line-height: 1.6; }",
     "footer { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; border-top: 1px solid rgba(255,255,255,.075); padding-block: 1.5rem 2rem; } footer p, footer > a:last-child { color: rgba(255,255,255,.3); font-size: .58rem; } footer > a:last-child { color: rgba(255,255,255,.55); }",
     "@media (max-width: 900px) { .nav-inner { grid-template-columns: 1fr auto; } .nav-links { display: none; } .app-hero { grid-template-columns: 1fr; min-height: auto; } .hero-visual { min-height: 310px; transform: none; } .metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .workspace-layout { grid-template-columns: 1fr; } .activity-card { min-height: auto; } .generated-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .capability-section > .section-heading { align-items: flex-start; flex-direction: column; } }",
@@ -251,7 +264,7 @@ export function buildGeneratedFrontend(specification: MasterSpecification): { ap
   ].join("\n");
 
   const navHtml = view.navItems.map((item, index) => `<a class="${index === 0 ? "is-active" : ""}" href="#${item.toLowerCase().replaceAll(" ", "-")}">${escapeHtml(item)}</a>`).join("");
-  const metricsHtml = view.metrics.map((metric) => `<article class="metric-card reveal"><div><span>${escapeHtml(metric.label)}</span><button type="button" aria-label="More about ${escapeHtml(metric.label)}">↗</button></div><strong>${escapeHtml(metric.value)}</strong><p class="${metric.tone}">${escapeHtml(metric.delta)}</p></article>`).join("");
+  const metricsHtml = view.metrics.map((metric) => `<article class="metric-card reveal"><div><span>${escapeHtml(metric.label)}</span><button type="button" data-action="metric" aria-label="More about ${escapeHtml(metric.label)}">↗</button></div><strong>${escapeHtml(metric.value)}</strong><p class="${metric.tone}">${escapeHtml(metric.delta)}</p></article>`).join("");
   const recordsHtml = view.records.map((record) => `<div class="record-row"><strong><i>${escapeHtml(record.name.slice(-1))}</i>${escapeHtml(record.name)}</strong><span>${escapeHtml(record.owner)}</span><span class="progress"><i><b style="width:${record.progress}%"></b></i>${record.progress}%</span><span class="status status-${record.status.toLowerCase().replaceAll(" ", "-")}">${escapeHtml(record.status)}</span></div>`).join("");
   const areasHtml = view.areas.map((area, index) => `<article class="capability-card generated-card reveal"><span>0${index + 1}</span><i aria-hidden="true">${["⌁", "◇", "↗", "◎", "⌘", "△"][index % 6]}</i><h3>${escapeHtml(area)}</h3><p>Connected to typed APIs, role policy, validation, and auditable project history.</p></article>`).join("");
   const barsHtml = [38, 54, 44, 67, 58, 79, 72, 92, 84, 100].map((height) => `<i style="height:${height}%"></i>`).join("");
@@ -270,11 +283,11 @@ export function buildGeneratedFrontend(specification: MasterSpecification): { ap
     `<div class="generated-shell" data-forgeweb-template="${GENERATED_FRONTEND_TEMPLATE}">`,
     '<header class="app-nav"><div class="preview-container nav-inner">', brand,
     `<nav class="nav-links" aria-label="Primary navigation">${navHtml}</nav>`,
-    '<div class="nav-actions"><button class="search-button" type="button"><span>Search</span><kbd>⌘ K</kbd></button><button class="avatar" type="button" aria-label="Open account menu">MC</button></div></div></header>',
+    '<div class="nav-actions"><button class="search-button" type="button" data-action="search" aria-label="Search workspace"><span>Search</span><kbd>⌘ K</kbd></button><button class="avatar" type="button" data-action="account" aria-label="Open account menu" aria-expanded="false">MC</button></div></div></header>',
     '<main class="preview-container">',
     '<section id="overview" class="generated-hero app-hero">',
-    `<div class="hero-copy reveal"><p class="eyebrow"><i class="signal-dot"></i> Live workspace · Preview data</p><h1>Keep every <em>${escapeHtml(view.primaryLabel.toLowerCase())}</em> moving.</h1><p class="hero-summary">${escapeHtml(specification.summary)}</p><div class="hero-actions"><a class="primary-action" href="#workspace">Create ${escapeHtml(view.primaryLabel)}<span>↗</span></a><a class="secondary-action" href="#activity">View activity</a></div><div class="hero-proof"><span class="avatar-stack"><i>MC</i><i>NW</i><i>AP</i></span><p><strong>${Math.max(8, view.navItems.length * 4)} teammates</strong><br />working securely today</p></div></div>`,
-    `<div class="hero-visual reveal" aria-label="${escapeHtml(view.primaryLabel)} performance overview"><div class="visual-top"><div><span>Performance</span><strong>This quarter</strong></div><button type="button">•••</button></div><div class="visual-value"><strong>84.6%</strong><span>+12.4%</span></div><div class="chart" aria-hidden="true">${barsHtml}</div><div class="visual-axis"><span>Week 1</span><span>Week 10</span></div></div>`,
+    `<div class="hero-copy reveal"><p class="eyebrow"><i class="signal-dot"></i> Live workspace · Preview data</p><h1>Keep every <em>${escapeHtml(view.primaryLabel.toLowerCase())}</em> moving.</h1><p class="hero-summary">${escapeHtml(specification.summary)}</p><div class="hero-actions"><a class="primary-action" data-action="create" href="#workspace">Create ${escapeHtml(view.primaryLabel)}<span>↗</span></a><a class="secondary-action" href="#activity">View activity</a></div><div class="hero-proof"><span class="avatar-stack"><i>MC</i><i>NW</i><i>AP</i></span><p><strong>${Math.max(8, view.navItems.length * 4)} teammates</strong><br />working securely today</p></div></div>`,
+    `<div class="hero-visual reveal" aria-label="${escapeHtml(view.primaryLabel)} performance overview"><div class="visual-top"><div><span>Performance</span><strong>This quarter</strong></div><button type="button" data-action="period" aria-label="Change reporting period">•••</button></div><div class="visual-value"><strong>84.6%</strong><span>+12.4%</span></div><div class="chart" aria-hidden="true">${barsHtml}</div><div class="visual-axis"><span>Week 1</span><span>Week 10</span></div></div>`,
     "</section>",
     `<section class="metric-grid" aria-label="Workspace metrics">${metricsHtml}</section>`,
     '<section id="workspace" class="workspace-layout">',
@@ -283,6 +296,8 @@ export function buildGeneratedFrontend(specification: MasterSpecification): { ap
     "</section>",
     `<section class="capability-section"><div class="section-heading reveal"><div><span>Designed around the work</span><h2>Everything your team needs.</h2></div><p>Clear workflows, secure boundaries, and a responsive interface generated from your approved architecture.</p></div><div class="generated-grid">${areasHtml}</div></section>`,
     `<footer>${brand}<p>Secure by design. Built from an approved architecture.</p><a href="#overview">Back to top ↑</a></footer>`,
+    '<div class="preview-toast" role="status" aria-live="polite"></div>',
+    `<script>(()=>{const toast=document.querySelector('.preview-toast');let timer;const notify=(message)=>{toast.textContent=message;toast.classList.add('is-visible');clearTimeout(timer);timer=setTimeout(()=>toast.classList.remove('is-visible'),2200)};document.addEventListener('click',(event)=>{const control=event.target.closest('[data-action]');if(!control)return;const action=control.dataset.action;if(action==='search')notify('Search opened — type to filter ${escapeHtml(view.primaryPlural.toLowerCase())}.');if(action==='account'){const expanded=control.getAttribute('aria-expanded')==='true';control.setAttribute('aria-expanded',String(!expanded));notify(expanded?'Account menu closed.':'Account menu opened for Maya Chen.')}if(action==='period'){const label=document.querySelector('.visual-top strong');label.textContent=label.textContent==='This quarter'?'This month':'This quarter';notify('Reporting period updated.')}if(action==='metric'){document.querySelectorAll('.metric-card').forEach(card=>card.classList.remove('is-selected'));control.closest('.metric-card').classList.add('is-selected');notify(control.getAttribute('aria-label')+' selected.')}if(action==='create'){const rows=document.querySelector('.record-table');const row=document.querySelector('.record-row:not(.table-head)')?.cloneNode(true);if(row){row.querySelector('strong').lastChild.textContent=' New ${escapeHtml(view.primaryLabel)}';rows.appendChild(row);notify('${escapeHtml(view.primaryLabel)} created in preview data.')}}});})();</script>`,
     "</main></div></body></html>",
     "",
   ].join("\n");

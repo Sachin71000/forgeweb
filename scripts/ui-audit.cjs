@@ -79,7 +79,8 @@ async function auditViewport(browser, viewport) {
     if (!hero || hero.height < innerHeight - 1) failures.push("hero is shorter than the viewport");
     if (!horizontallyInside(heroBadge)) failures.push("hero badge is horizontally clipped");
     if (!horizontallyInside(chat)) failures.push("chat composer is horizontally clipped");
-    if (Number.parseFloat(getComputedStyle(chatElement).getPropertyValue("--border-glow-opacity")) < 0.99) {
+    if (!chatElement) failures.push("chat composer is missing");
+    else if (Number.parseFloat(getComputedStyle(chatElement).getPropertyValue("--border-glow-opacity")) < 0.99) {
       failures.push("chat border glow is not visible by default");
     }
     if (!horizontallyInside(nav)) failures.push("navigation shell is horizontally clipped");
@@ -170,6 +171,12 @@ async function auditViewport(browser, viewport) {
       );
       if (glowAfterLeave < 0.99) metrics.failures.push("chat border glow disappears after pointer leave");
     }
+    const menuTop = await page.locator(".project-library-trigger").evaluate((element) => element.getBoundingClientRect().top);
+    await page.evaluate(() => scrollTo(0, Math.min(innerHeight, document.documentElement.scrollHeight - innerHeight)));
+    await page.waitForTimeout(80);
+    const menuTopAfterScroll = await page.locator(".project-library-trigger").evaluate((element) => element.getBoundingClientRect().top);
+    if (menuTopAfterScroll >= menuTop - 20) metrics.failures.push("project history launcher follows the page instead of staying on the first screen");
+    await page.evaluate(() => scrollTo(0, 0));
   }
 
   if (viewport.name === "phone-390") {
@@ -190,7 +197,9 @@ async function auditViewport(browser, viewport) {
     generatedProjectId = projectId;
     await page.waitForTimeout(200);
     if (!(await page.locator(".hero-build-status").textContent()).includes("Master spec")) metrics.failures.push("build status did not start");
-    await page.locator(".build-proposal").waitFor({ state: "visible", timeout: 5000 });
+    await page.locator(".build-proposal").waitFor({ state: "visible", timeout: 180000 });
+    const approvedProductName = (await page.locator(".build-proposal-heading h2").textContent())?.trim();
+    if (!approvedProductName) metrics.failures.push("architecture proposal is missing the approved product name");
     if ((await page.locator(".build-requirements-grid article").count()) < 6) metrics.failures.push("architecture proposal is missing requirements");
     if ((await page.locator(".build-capabilities a").count()) !== 5) metrics.failures.push("customer-app capability registry is incomplete");
     if (!(await page.locator(".architecture-file").textContent()).includes("ARCHITECTURE.md")) metrics.failures.push("architecture file is not visible");
@@ -200,22 +209,27 @@ async function auditViewport(browser, viewport) {
     const activePromptId = await page.evaluate(() => document.activeElement?.id);
     if (activePromptId !== "product-prompt") metrics.failures.push("Edit prompt did not return focus to the prompt composer");
     await page.getByRole("button", { name: /Confirm requirements & generate/i }).click();
-    await page.locator(".generated-artifacts").waitFor({ state: "visible", timeout: 5000 });
-    await page.waitForFunction(() => document.querySelector(".hero-build-status")?.textContent?.includes("Validated"), null, { timeout: 5000 });
-    const generatedPaths = await page.locator(".generated-artifacts code").allTextContents();
+    await page.locator(".generated-artifacts").waitFor({ state: "visible", timeout: 240000 });
+    const generatedPaths = await page.locator(".workspace-file-list button span").allTextContents();
     if (!generatedPaths.some((path) => path.startsWith("frontend/"))) metrics.failures.push("generated frontend artifacts are missing");
     if (!generatedPaths.some((path) => path.startsWith("backend/"))) metrics.failures.push("generated backend artifacts are missing");
+    await page.locator(".workspace-file-list button").filter({ hasText: "ARCHITECTURE.md" }).click();
+    const architectureSource = await page.locator(".workspace-code-viewer pre").textContent();
+    if (!architectureSource?.includes("Architecture")) metrics.failures.push("selecting ARCHITECTURE.md did not open its stored source");
+    await page.locator(".workspace-file-list button").filter({ hasText: "frontend/src/App.tsx" }).click();
+    const appSource = await page.locator(".workspace-code-viewer pre").textContent();
+    if (!appSource?.includes("export default function App")) metrics.failures.push("selecting App.tsx did not open its complete source");
 
     await page.getByRole("tab", { name: "Preview" }).click();
     const previewFrame = page.locator(".preview-stage iframe");
     await previewFrame.waitFor({ state: "visible", timeout: 5000 });
-    await page.waitForFunction(() => {
-      const frame = document.querySelector(".preview-stage iframe");
-      return frame?.getAttribute("src")?.startsWith("/api/projects/");
-    });
-    await previewFrame.contentFrame().locator("h1").waitFor({ state: "visible", timeout: 5000 });
+    await previewFrame.contentFrame().locator("h1").waitFor({ state: "visible", timeout: 15000 });
     const generatedHeading = await previewFrame.contentFrame().locator("h1").textContent();
-    if (!generatedHeading?.toLowerCase().includes("inventory")) metrics.failures.push("preview is not rendering the generated frontend");
+    const generatedBody = await previewFrame.contentFrame().locator("body").textContent();
+    if (!generatedHeading?.trim() || !approvedProductName || !generatedBody?.toLowerCase().includes(approvedProductName.toLowerCase())) metrics.failures.push("preview is not rendering the architecture-approved product identity");
+    await previewFrame.contentFrame().getByRole("button", { name: /Search/i }).click();
+    await previewFrame.contentFrame().locator("[role=status]").waitFor({ state: "visible", timeout: 1000 });
+    if (!(await previewFrame.contentFrame().locator("[role=status]").textContent()).includes("Search is ready")) metrics.failures.push("generated preview search button is not functional");
     const desktopWidthSetting = await previewFrame.evaluate((element) => element.style.width);
     await page.getByRole("button", { name: "Mobile", exact: true }).click();
     const mobileWidthSetting = await previewFrame.evaluate((element) => element.style.width);
@@ -251,14 +265,14 @@ async function auditViewport(browser, viewport) {
 
     await page.getByRole("button", { name: "Make ZIP" }).click();
     await page.getByText("Ready to export", { exact: true }).waitFor({ state: "visible", timeout: 5000 });
-    if (!(await page.locator(".export-summary").textContent()).includes("12")) metrics.failures.push("export summary does not report generated files");
+    if (!(await page.locator(".export-summary").textContent()).includes(String(generatedPaths.length))) metrics.failures.push("export summary does not report generated files");
     await page.getByRole("button", { name: "Close export summary" }).click();
 
     await page.reload({ waitUntil: "networkidle" });
     await page.getByRole("button", { name: /My Projects/ }).click();
     const persistedProject = page.locator(".project-library-list article").first();
     await persistedProject.waitFor({ state: "visible", timeout: 5000 });
-    await persistedProject.getByRole("button").click();
+    await persistedProject.locator(".project-history-open").click();
     await page.locator(".project-workspace").waitFor({ state: "visible", timeout: 5000 });
     await page.waitForFunction(() => document.querySelector(".workspace-tabs")?.textContent?.includes("Version 1"), null, { timeout: 5000 });
     if (!(await page.locator(".workspace-tabs").textContent()).includes("Version 1")) metrics.failures.push("reopened project did not retain the restored version");
@@ -317,22 +331,22 @@ async function auditGeneratedPreview(browser, projectId) {
   const runtimeFailures = recordRuntimeFailures(page);
   await page.goto(`http://127.0.0.1:5173/api/projects/${projectId}/preview`, { waitUntil: "networkidle" });
   const desktop = await page.evaluate(() => {
-    const nav = document.querySelector(".app-nav")?.getBoundingClientRect();
-    const navLinks = document.querySelector(".nav-links")?.getBoundingClientRect();
-    const brand = document.querySelector(".brand")?.getBoundingClientRect();
-    const hero = document.querySelector(".app-hero")?.getBoundingClientRect();
-    const metrics = Array.from(document.querySelectorAll(".metric-card"), (element) => element.getBoundingClientRect());
-    const workspace = document.querySelector(".workspace-layout")?.getBoundingClientRect();
+    const nav = document.querySelector(".adaptive-nav")?.getBoundingClientRect();
+    const navLinks = document.querySelector(".adaptive-nav nav")?.getBoundingClientRect();
+    const brand = document.querySelector(".wordmark")?.getBoundingClientRect();
+    const hero = document.querySelector(".adaptive-hero")?.getBoundingClientRect();
+    const metrics = Array.from(document.querySelectorAll(".metric-row article"), (element) => element.getBoundingClientRect());
+    const workspace = document.querySelector(".workspace")?.getBoundingClientRect();
     return {
       overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
       navVisible: Boolean(nav && nav.height >= 60),
-      navLinkCount: document.querySelectorAll(".nav-links a").length,
-      navCenterDelta: navLinks ? Math.abs(navLinks.left + navLinks.width / 2 - innerWidth / 2) : 999,
+      navLinkCount: document.querySelectorAll(".adaptive-nav nav a").length,
+      navCenterDelta: navLinks ? Math.max(0, navLinks.right - innerWidth) : 999,
       brandInside: Boolean(brand && brand.left >= 0 && brand.right <= innerWidth),
       heroInside: Boolean(hero && hero.left >= 0 && hero.right <= innerWidth),
       metricCount: metrics.length,
-      metricSameRow: metrics.length === 4 && Math.max(...metrics.map((rect) => rect.top)) - Math.min(...metrics.map((rect) => rect.top)) < 2,
-      workspaceVisible: Boolean(workspace && workspace.width > 800),
+      metricSameRow: metrics.length === 3 && Math.max(...metrics.map((rect) => rect.top)) - Math.min(...metrics.map((rect) => rect.top)) < 2,
+      workspaceVisible: Boolean(workspace && workspace.width > 600),
       template: document.documentElement.dataset.forgewebTemplate,
     };
   });
@@ -341,9 +355,9 @@ async function auditGeneratedPreview(browser, projectId) {
   await page.waitForTimeout(150);
   const mobile = await page.evaluate(() => ({
     overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-    navHidden: getComputedStyle(document.querySelector(".nav-links")).display === "none",
-    brandVisible: document.querySelector(".brand")?.getBoundingClientRect().width > 90,
-    heroColumns: getComputedStyle(document.querySelector(".app-hero")).gridTemplateColumns.split(" ").length,
+    navHidden: getComputedStyle(document.querySelector(".adaptive-nav nav")).display === "none",
+    brandVisible: Boolean(document.querySelector(".wordmark")?.getClientRects().length),
+    heroColumns: getComputedStyle(document.querySelector(".adaptive-hero")).gridTemplateColumns.split(" ").length,
   }));
   await page.close();
   return {
@@ -353,9 +367,9 @@ async function auditGeneratedPreview(browser, projectId) {
       ...(desktop.navLinkCount !== 4 ? [`expected four generated navigation links, found ${desktop.navLinkCount}`] : []),
       ...(desktop.navCenterDelta > 3 ? [`generated navigation is off-center by ${desktop.navCenterDelta}px`] : []),
       ...(!desktop.brandInside || !desktop.heroInside ? ["generated brand or hero is clipped"] : []),
-      ...(desktop.metricCount !== 4 || !desktop.metricSameRow ? ["desktop metric cards are not aligned in one row"] : []),
+      ...(desktop.metricCount !== 3 || !desktop.metricSameRow ? ["desktop metric cards are not aligned in one row"] : []),
       ...(!desktop.workspaceVisible ? ["generated workspace layout is missing"] : []),
-      ...(desktop.template !== "forgeweb-professional-v2" ? ["professional template marker is missing"] : []),
+      ...(desktop.template !== "forgeweb-adaptive-product-v1" ? ["adaptive product template marker is missing"] : []),
       ...(mobile.overflow ? ["professional preview overflows on mobile"] : []),
       ...(!mobile.navHidden || !mobile.brandVisible ? ["generated mobile navigation does not adapt correctly"] : []),
       ...(mobile.heroColumns !== 1 ? ["generated hero does not collapse to one mobile column"] : []),
@@ -364,6 +378,22 @@ async function auditGeneratedPreview(browser, projectId) {
     desktop,
     mobile,
   };
+}
+
+async function auditProjectDeletion(browser, projectId) {
+  if (!projectId) return { failures: ["generated project id was not captured for deletion"] };
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const runtimeFailures = recordRuntimeFailures(page);
+  await page.goto("http://127.0.0.1:5173/", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: /My Projects/ }).click();
+  const project = page.locator(`[data-project-id="${projectId}"]`);
+  await project.waitFor({ state: "visible", timeout: 5000 });
+  page.once("dialog", (dialog) => dialog.accept());
+  await project.locator(".project-history-delete").click();
+  await project.waitFor({ state: "detached", timeout: 5000 });
+  const deletedResponse = await page.request.get(`http://127.0.0.1:5173/api/projects/${projectId}`);
+  await page.close();
+  return { failures: [...(deletedResponse.status() !== 404 ? ["deleted project is still available from the API"] : []), ...runtimeFailures], status: deletedResponse.status() };
 }
 
 async function auditCommercePreview(browser) {
@@ -378,12 +408,22 @@ async function auditCommercePreview(browser) {
   const failures = [];
   if (proposal.status !== "awaiting_confirmation") failures.push(`commerce proposal ended in ${proposal.status}`);
   if (proposal.specification?.productKind !== "commerce") failures.push("commerce prompt was not classified as commerce");
-  if (proposal.specification?.productName !== "Nexa Market") failures.push(`commerce project was named ${proposal.specification?.productName || "nothing"}`);
+  if (!proposal.specification?.productName || /^(Modern|ForgeWeb Application|Dashboard)$/i.test(proposal.specification.productName)) failures.push(`commerce project received a generic name: ${proposal.specification?.productName || "nothing"}`);
   if (proposal.specification?.requirements?.length !== 11) failures.push("commerce architecture does not contain eleven product requirements");
   if (!proposal.specification?.architecture?.frontend?.pages?.some((pageName) => /checkout/i.test(pageName))) failures.push("commerce architecture is missing checkout");
   if ((proposal.filePaths || []).length !== 0) failures.push("commerce source appeared before architecture confirmation");
 
   await page.setContent(fixture.preview, { waitUntil: "load" });
+  await page.locator('.product-card .add-cart').first().click();
+  await page.locator('.product-card [data-action="wishlist"]').first().click();
+  await page.locator('.deal-tabs [data-action="deal-tab"]').nth(1).click();
+  await page.waitForTimeout(240);
+  const interactions = await page.evaluate(() => ({
+    cartCount: document.querySelector('[aria-label="Shopping cart"] b')?.textContent,
+    wishlistSaved: document.querySelector('.product-card [data-action="wishlist"]')?.classList.contains('is-saved'),
+    activeDealTab: document.querySelector('.deal-tabs .is-active')?.textContent,
+    toastVisible: document.querySelector('.commerce-toast')?.classList.contains('is-visible'),
+  }));
   const desktop = await page.evaluate(() => {
     const categories = Array.from(document.querySelectorAll(".category-card"), (element) => element.getBoundingClientRect());
     const products = Array.from(document.querySelectorAll(".product-card"), (element) => element.getBoundingClientRect());
@@ -426,9 +466,152 @@ async function auditCommercePreview(browser) {
     ...(mobile.overflow ? ["commerce preview overflows on mobile"] : []),
     ...(!mobile.searchVisible || mobile.categoryColumns !== 2 ? ["commerce mobile search or category grid does not adapt"] : []),
     ...(!mobile.productScrollable || !mobile.cartVisible ? ["commerce mobile products or cart are not usable"] : []),
+    ...(interactions.cartCount !== "3" || !interactions.wishlistSaved || interactions.activeDealTab !== "Best sellers" || !interactions.toastVisible ? ["commerce cart, wishlist, or filter-tab interactions are not functional"] : []),
     ...runtimeFailures,
   );
-  return { failures, projectId: fixture.projectId, desktop, mobile };
+  return { failures, projectId: fixture.projectId, desktop, mobile, interactions };
+}
+
+async function auditRestaurantPreview(browser) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const runtimeFailures = recordRuntimeFailures(page);
+  const fixture = JSON.parse(execFileSync(process.execPath, ["--experimental-strip-types", "scripts/restaurant-preview-fixture.ts"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+  }));
+  const failures = [];
+  const proposal = fixture.proposal;
+  if (proposal.status !== "awaiting_confirmation") failures.push(`restaurant proposal ended in ${proposal.status}`);
+  if (proposal.specification?.productKind !== "restaurant") failures.push("restaurant prompt was not classified as restaurant");
+  if ((proposal.specification?.requirements?.length || 0) < 6 || proposal.specification.requirements.length > 12) failures.push("restaurant architecture requirement count is outside 6–12");
+
+  const byPath = new Map(fixture.files.map((file) => [file.path, file.content]));
+  let contract;
+  try {
+    contract = JSON.parse(byPath.get("shared/api-contract.json"));
+  } catch {
+    failures.push("shared API contract is missing or invalid JSON");
+  }
+  const expectedRoutes = [
+    "GET /api/menu",
+    "GET /api/availability",
+    "POST /api/reservations",
+    "GET /api/reservations/{reservation_id}",
+    "DELETE /api/reservations/{reservation_id}",
+  ];
+  const contractRoutes = new Set((contract?.routes || []).map((route) => `${route.method} ${route.path}`));
+  for (const route of expectedRoutes) if (!contractRoutes.has(route)) failures.push(`shared API contract is missing ${route}`);
+  const backendRoutes = byPath.get("backend/app/api/routes.py") || "";
+  const frontendApp = byPath.get("frontend/src/App.tsx") || "";
+  if (!backendRoutes.includes('@router.get("/availability")') || !backendRoutes.includes('@router.post("/reservations"')) failures.push("FastAPI reservation routes are missing");
+  if (!frontendApp.includes('/api/availability?date=') || !frontendApp.includes('"/api/reservations"')) failures.push("React reservation form is not connected to the FastAPI contract");
+
+  await page.setContent(fixture.preview, { waitUntil: "load" });
+  const modal = page.locator("#booking");
+  if (await modal.isVisible()) failures.push("reservation modal is visible before a reserve action");
+
+  await page.getByRole("button", { name: "Reserve a table" }).click();
+  if (!(await modal.isVisible())) failures.push("Reserve a table did not open the reservation dialog");
+  await page.getByRole("button", { name: "Check availability" }).click();
+  if ((await page.getByRole("button", { name: "Check availability" }).count()) !== 1) failures.push("empty required date incorrectly advanced reservation");
+  await page.locator('input[name="date"]').fill("2030-08-29");
+  await page.locator('select[name="time"]').selectOption("7:30 PM");
+  await page.locator('select[name="guests"]').selectOption("4 guests");
+  await page.getByRole("button", { name: "Check availability" }).click();
+  const availabilityMessage = await page.getByRole("status").textContent();
+  if (!availabilityMessage?.includes("available at 7:30 PM for 4 guests")) failures.push("availability action did not show date/time/guest feedback");
+  if (!(await page.getByRole("button", { name: "Confirm reservation" }).isVisible())) failures.push("availability action did not advance to confirmation");
+  await page.getByRole("button", { name: "Confirm reservation" }).click();
+  const confirmationMessage = await page.getByRole("status").textContent();
+  const reservedButton = page.getByRole("button", { name: "Reserved" });
+  if (!confirmationMessage?.includes("Reservation confirmed") || !/Reference: FW-[A-Z0-9]{6}/.test(confirmationMessage)) failures.push("reservation confirmation or reference is missing");
+  if (!(await reservedButton.isDisabled())) failures.push("confirmed reservation button remains actionable");
+  await page.getByRole("button", { name: "Close reservation" }).click();
+  if (await modal.isVisible()) failures.push("close reservation did not hide the dialog");
+
+  await page.getByRole("button", { name: "Find a table" }).click();
+  await page.keyboard.press("Escape");
+  if (await modal.isVisible()) failures.push("Escape did not close the reservation dialog");
+  await page.getByRole("button", { name: "Small plates" }).click();
+  const visibleDishes = await page.locator(".dish-grid article:visible").count();
+  if (visibleDishes !== 1) failures.push(`menu filter left ${visibleDishes} visible dishes instead of one`);
+  await page.locator('nav a[href="#story"]').click();
+  if ((await page.evaluate(() => location.hash)) !== "#story") failures.push("restaurant navigation link did not update the target");
+
+  const desktop = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    navLinks: document.querySelectorAll(".site-header nav a").length,
+    h1Count: document.querySelectorAll("h1").length,
+    initialModalHiddenRule: Array.from(document.styleSheets).some((sheet) => {
+      try { return Array.from(sheet.cssRules).some((rule) => rule.cssText.includes(".modal-backdrop[hidden]") && rule.cssText.includes("display: none")); } catch { return false; }
+    }),
+  }));
+  desktop.template = fixture.preview.includes("forgeweb-restaurant-v2") ? "forgeweb-restaurant-v2" : "missing";
+  await page.screenshot({ path: "generated-restaurant-preview.png", fullPage: false });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(150);
+  const mobile = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    navHidden: getComputedStyle(document.querySelector(".site-header nav")).display === "none",
+    dishColumns: getComputedStyle(document.querySelector(".dish-grid")).gridTemplateColumns.split(" ").length,
+    reserveVisible: document.querySelector(".site-header > button")?.getBoundingClientRect().width > 0,
+  }));
+  await page.close();
+  failures.push(
+    ...(desktop.template !== "forgeweb-restaurant-v2" ? ["restaurant v2 template marker is missing"] : []),
+    ...(desktop.overflow || mobile.overflow ? ["restaurant preview has horizontal overflow"] : []),
+    ...(desktop.navLinks !== 3 || desktop.h1Count !== 1 ? ["restaurant semantic navigation or heading structure is incomplete"] : []),
+    ...(!desktop.initialModalHiddenRule ? ["reservation modal lacks an explicit hidden-state CSS rule"] : []),
+    ...(!mobile.navHidden || mobile.dishColumns !== 1 || !mobile.reserveVisible ? ["restaurant mobile layout is not usable"] : []),
+    ...runtimeFailures,
+  );
+  return { failures, projectId: fixture.projectId, desktop, mobile, contractRouteCount: contractRoutes.size };
+}
+
+async function auditGenericPreview(browser) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const runtimeFailures = recordRuntimeFailures(page);
+  const fixture = JSON.parse(execFileSync(process.execPath, ["--experimental-strip-types", "scripts/generic-preview-fixture.ts"], {
+    cwd: process.cwd(), encoding: "utf8", maxBuffer: 8 * 1024 * 1024,
+  }));
+  const failures = [];
+  if (fixture.proposal.specification?.productKind !== "generic") failures.push("basic client website was not classified as generic");
+  await page.setContent(fixture.preview, { waitUntil: "load" });
+  const desktop = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    template: document.documentElement.dataset.forgewebTemplate,
+    nav: Array.from(document.querySelectorAll(".site-nav nav a"), (link) => link.textContent?.trim()),
+    missingTargets: Array.from(document.querySelectorAll('.site-nav nav a[href^="#"]')).filter((link) => !document.querySelector(link.getAttribute("href"))).length,
+    repeatedDashboard: /Keep every|84\.6%|Live workspace · Preview data/.test(document.body.textContent || ""),
+  }));
+  await page.screenshot({ path: "generated-generic-preview.png", fullPage: false });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Toggle navigation" }).click();
+  const mobileNav = page.locator(".site-nav nav");
+  if (!(await mobileNav.isVisible())) failures.push("generic website mobile navigation did not open");
+  await mobileNav.getByRole("link", { name: "Contact" }).click();
+  if (await mobileNav.isVisible()) failures.push("generic website mobile navigation did not close after selection");
+  await page.locator('input[name="name"]').fill("Asha Client");
+  await page.locator('input[name="email"]').fill("asha@example.com");
+  await page.locator('textarea[name="message"]').fill("Please tell me more about your services.");
+  await page.getByRole("button", { name: "Send enquiry" }).click();
+  await page.getByRole("status").filter({ hasText: "received" }).waitFor({ state: "visible", timeout: 2000 });
+  const mobile = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    hash: location.hash,
+    status: document.querySelector('[role="status"]')?.textContent,
+  }));
+  await page.close();
+  failures.push(
+    ...(desktop.template !== "forgeweb-client-site-v2" ? ["generic client-site template marker is missing"] : []),
+    ...(desktop.overflow || mobile.overflow ? ["generic client website overflows"] : []),
+    ...(desktop.nav.join(",") !== "Home,About,Services,Contact" || desktop.missingTargets ? ["generic client navigation does not match the prompt or has missing targets"] : []),
+    ...(desktop.repeatedDashboard ? ["generic client website reused dashboard content"] : []),
+    ...(mobile.hash !== "#contact" || !mobile.status?.includes("received") ? ["generic client navigation or enquiry interaction failed"] : []),
+    ...runtimeFailures,
+  );
+  return { failures, desktop, mobile, projectId: fixture.projectId };
 }
 
 async function auditKeyboard(browser) {
@@ -516,10 +699,13 @@ async function run() {
     headless: true,
     executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
   });
-  const results = { viewports: {}, generatedPreview: null, commercePreview: null, gooeyNav: null, keyboard: null, reducedMotion: null, performance: null };
+  const results = { viewports: {}, generatedPreview: null, projectDeletion: null, commercePreview: null, restaurantPreview: null, genericPreview: null, gooeyNav: null, keyboard: null, reducedMotion: null, performance: null };
   for (const viewport of viewports) results.viewports[viewport.name] = await auditViewport(browser, viewport);
   results.generatedPreview = await auditGeneratedPreview(browser, generatedProjectId);
+  results.projectDeletion = await auditProjectDeletion(browser, generatedProjectId);
   results.commercePreview = await auditCommercePreview(browser);
+  results.restaurantPreview = await auditRestaurantPreview(browser);
+  results.genericPreview = await auditGenericPreview(browser);
   results.gooeyNav = await auditGooeyNav(browser);
   results.keyboard = await auditKeyboard(browser);
   results.reducedMotion = await auditReducedMotion(browser);
@@ -529,7 +715,10 @@ async function run() {
   const failures = [
     ...Object.entries(results.viewports).flatMap(([name, result]) => result.failures.map((failure) => `${name}: ${failure}`)),
     ...results.generatedPreview.failures.map((failure) => `generated-preview: ${failure}`),
+    ...results.projectDeletion.failures.map((failure) => `project-deletion: ${failure}`),
     ...results.commercePreview.failures.map((failure) => `commerce-preview: ${failure}`),
+    ...results.restaurantPreview.failures.map((failure) => `restaurant-preview: ${failure}`),
+    ...results.genericPreview.failures.map((failure) => `generic-preview: ${failure}`),
     ...results.gooeyNav.failures.map((failure) => `gooey-nav: ${failure}`),
     ...results.keyboard.failures.map((failure) => `keyboard: ${failure}`),
     ...results.reducedMotion.failures.map((failure) => `reduced-motion: ${failure}`),

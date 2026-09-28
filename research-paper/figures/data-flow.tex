@@ -1,0 +1,20 @@
+\begin{tikzpicture}[node distance=4mm]
+\node[block,text width=4.25cm] (prompt) {User prompt};
+\node[block,text width=4.25cm,below=of prompt] (plan) {Requirements + architecture document};
+\node[gate,diamond,aspect=3,inner sep=2pt,below=of plan] (gate) {User approves?};
+\node[block,text width=4.25cm,below=6mm of gate] (gen) {Gemini frontend + local LLaMA backend\\\scriptsize Proposed split; record any fallback};
+\node[data,text width=4.25cm,below=of gen] (files) {Frontend + backend + API contract};
+\node[gate,text width=4.25cm,below=of files] (check) {Policy, manifest and structural checks};
+\node[data,text width=4.25cm,below=of check] (save) {Accepted version + traceability graph};
+\node[block,text width=4.25cm,below=of save] (preview) {Inspect files, preview, restore and export};
+\draw[flow] (prompt)--(plan);
+\draw[flow] (plan)--(gate);
+\draw[flow] (gate)--node[edge label,right]{Yes}(gen);
+\draw[flow] (gate.west)--(-3,0 |- gate.west) |- node[edge label,pos=.72,above]{Edit prompt} (prompt.west);
+\draw[flow] (gen)--(files);
+\draw[flow] (files)--(check);
+\draw[flow] (check)--node[edge label,right]{Pass}(save);
+\draw[flow] (save)--(preview);
+\node[gate,text width=1.25cm,font=\sffamily\scriptsize,right=5mm of check] (fail) {Fail:\\report issue;\\preserve prior version};
+\draw[softflow] (check.east)--(fail.west);
+\end{tikzpicture}

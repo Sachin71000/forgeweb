@@ -217,7 +217,7 @@ export default function FloatingLines({
 
     let renderer: WebGLRenderer;
     try {
-      renderer = new WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+      renderer = new WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
     } catch {
       setFailed(true);
       return;
@@ -231,7 +231,11 @@ export default function FloatingLines({
     const scene = new Scene();
     const camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
     camera.position.z = 1;
-    const dpr = innerWidth < 768 ? 1 : Math.min(devicePixelRatio || 1, 1.5);
+    // The shader is a decorative full-screen layer. Rendering it below native
+    // resolution keeps pointer/scroll interactions smooth without changing its
+    // apparent CSS size or sacrificing the soft-line treatment.
+    const renderScale = innerWidth < 768 ? 0.65 : 0.7;
+    const dpr = Math.min(devicePixelRatio || 1, 1.25) * renderScale;
     renderer.setPixelRatio(dpr);
     renderer.domElement.style.width = "100%";
     renderer.domElement.style.height = "100%";
