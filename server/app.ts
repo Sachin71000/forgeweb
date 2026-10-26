@@ -68,6 +68,9 @@ function streamBuildEvents(request: IncomingMessage, response: ServerResponse, w
 }
 
 async function body(request: IncomingMessage): Promise<unknown> {
+  if (request.headers["content-type"]?.split(";")[0].trim().toLowerCase() !== "application/json") {
+    throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Request body must use application/json.");
+  }
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
@@ -77,10 +80,31 @@ async function body(request: IncomingMessage): Promise<unknown> {
     chunks.push(buffer);
   }
   if (chunks.length === 0) return {};
+  let parsed: unknown;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
     throw new ApiError(400, "INVALID_JSON", "Request body must be valid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new ApiError(400, "INVALID_BODY", "Request body must be a JSON object.");
+  return parsed;
+}
+
+function checkRequestOrigin(request: IncomingMessage): void {
+  const host = request.headers.host;
+  if (!host) throw new ApiError(400, "INVALID_HOST", "Host header is required.");
+  let target: URL;
+  const protocol = (request.socket as typeof request.socket & { encrypted?: boolean }).encrypted ? "https:" : "http:";
+  try { target = new URL(`${protocol}//${host}`); }
+  catch { throw new ApiError(400, "INVALID_HOST", "Invalid Host header."); }
+  // The control plane is local-only. Reject rebinding to arbitrary DNS names.
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(target.hostname) || target.username || target.password || target.pathname !== "/" || target.search || target.hash) {
+    throw new ApiError(403, "UNTRUSTED_HOST", "This local server only accepts loopback hosts.");
+  }
+  const origin = request.headers.origin;
+  if (origin && origin !== target.origin) throw new ApiError(403, "CROSS_ORIGIN_REQUEST", "Cross-origin API requests are not allowed.");
+  if (!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && request.headers["sec-fetch-site"] === "cross-site") {
+    throw new ApiError(403, "CROSS_ORIGIN_REQUEST", "Cross-site changes are not allowed.");
   }
 }
 
@@ -88,9 +112,12 @@ export type ForgeWebRequestHandler = (request: IncomingMessage, response: Server
 
 export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebRequestHandler {
   return async (request, response) => {
-    const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
     const method = request.method ?? "GET";
     try {
+      checkRequestOrigin(request);
+      const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+      try { decodeURIComponent(requestUrl.pathname); }
+      catch { throw new ApiError(400, "INVALID_URL_ENCODING", "Request path contains invalid URL encoding."); }
       if (method === "GET" && requestUrl.pathname === "/api/health") {
         send(response, 200, { status: "ok", service: "forgeweb-control-plane", generation: workflow.generationStatus(), time: new Date().toISOString() });
         return;

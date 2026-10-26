@@ -178,8 +178,8 @@ export async function waitForBuild(
   onProgress: (build: BuildResponse) => void,
   options: { intervalMs?: number; timeoutMs?: number } = {},
 ): Promise<BuildResponse> {
-  const intervalMs = options.intervalMs ?? 250;
-  const timeoutMs = options.timeoutMs ?? 60_000;
+  const intervalMs = options.intervalMs ?? 1_000;
+  const timeoutMs = options.timeoutMs ?? 20 * 60_000;
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const build = await getBuild(buildId);
@@ -187,5 +187,7 @@ export async function waitForBuild(
     if (["awaiting_confirmation", "completed", "failed", "needs_context"].includes(build.status)) return build;
     await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
   }
-  throw new Error("The build is still running. Check the project activity and try again.");
+  throw new BuildWaitTimeoutError("Monitoring timed out; the server has not reported a terminal result. Check project activity before starting another build.");
 }
+
+export class BuildWaitTimeoutError extends Error {}

@@ -1,6 +1,8 @@
 import type { GeneratedFile, MasterSpecification, ProductKind, Requirement } from "../domain.ts";
+import { persistentRepository } from "../generation/persistent-repository.ts";
 import { GENERATED_AI_TEMPLATE } from "../generated-frontend.ts";
 import { ApiError, digest, safePath } from "../lib.ts";
+import { fetchWithRetry, networkFailureDetail, redactProviderDetail } from "./transport.ts";
 import { backendImplementationPrompt, FORGEWEB_MASTER_GENERATION_PROMPT, frontendImplementationPrompt, planningPrompt } from "../generation/master-prompt.ts";
 
 export type ProviderPlan = {
@@ -101,21 +103,8 @@ const encodedBackendSchema = {
   additionalProperties: false,
 } as const;
 
-type GeminiResponse = { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+type GeminiResponse = { candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: string; thought?: boolean }> } }> };
 type ChatCompletionResponse = { choices?: Array<{ message?: { content?: string | null } }> };
-
-async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
-  let response: Response | undefined;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    response = await fetch(url, init);
-    // Quota exhaustion is not repaired by rapid retries. Return 429 immediately so
-    // the provider chain can switch models instead of blocking the customer build.
-    if (![404, 500, 502, 503, 504].includes(response.status) || attempt === attempts - 1) return response;
-    await response.body?.cancel();
-    await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
-  }
-  return response!;
-}
 
 export class GeminiGenerationProvider implements ApplicationGenerationProvider {
   readonly id = "google-gemini" as const;
@@ -134,15 +123,45 @@ export class GeminiGenerationProvider implements ApplicationGenerationProvider {
   }
 
   async generate(specification: MasterSpecification): Promise<GeneratedFile[]> {
-    const manifest = await this.generateFrontendManifest(specification);
-    return validateProviderManifest(manifest, specification);
+    const frontend = await this.generateFrontendManifest(specification);
+    const backend = await this.generateBackendManifest(specification);
+    return composeProviderApplication(frontend, backend, specification);
+  }
+
+  async generateBackendManifest(specification: MasterSpecification): Promise<ProviderManifest> {
+    const encoded = await this.request<EncodedBackendBundle>(backendImplementationPrompt(specification), encodedBackendSchema, 8_000);
+    return decodeBackendBundle(encoded);
   }
 
   async generateFrontendManifest(specification: MasterSpecification): Promise<ProviderManifest> {
-    return this.request<ProviderManifest>(frontendImplementationPrompt(specification), manifestSchema, 8_000);
+    const source = await this.request<ProviderManifest>(frontendImplementationPrompt(specification, false), manifestSchema, 8_000);
+    if (!Array.isArray(source.files) || source.files.some((file) => file.path === "frontend/preview.html")) {
+      throw new ApiError(422, "MODEL_MANIFEST_INVALID", "The frontend source stage must return source files without a preview.");
+    }
+    const preview = await this.request<ProviderManifest>([
+      "Generate only frontend/preview.html as one file in the files array. Do not return any other files.",
+      "Create a complete standalone HTML document faithfully matching the supplied React application, its styles, product identity, navigation, and functional interactions. Include embedded styles and safe inline JavaScript, header and main elements, data-action attributes, and the forgeweb-ai-generated-v1 marker. No external scripts or dead hash links. Keep output under 9000 characters.",
+      `Approved customer prompt: ${specification.prompt}`,
+      `Approved product name: ${specification.productName}`,
+      `Requirement IDs: ${specification.requirements.map((requirement) => requirement.id).join(", ")}`,
+      `React source: ${JSON.stringify(source.files)}`,
+    ].join("\n\n"), manifestSchema, 8_000);
+    if (!Array.isArray(preview.files) || preview.files.length !== 1 || preview.files[0].path !== "frontend/preview.html") {
+      throw new ApiError(422, "MODEL_MANIFEST_INVALID", "The preview stage must return exactly frontend/preview.html.");
+    }
+    return { files: [...source.files, ...preview.files] };
   }
 
   private async request<T>(prompt: string, schema: object, maxOutputTokens: number): Promise<T> {
+    try {
+      return await this.requestOnce<T>(prompt, schema, maxOutputTokens);
+    } catch (error) {
+      if (!(error instanceof ApiError) || !["GEMINI_INVALID_JSON", "GEMINI_TRUNCATED"].includes(error.code)) throw error;
+      return this.requestOnce<T>(`${prompt}\n\nThe previous response was incomplete or invalid JSON. Return a complete, concise JSON object matching the schema. Escape source strings correctly. No markdown fences or commentary.`, schema, Math.min(maxOutputTokens * 2, 16_000));
+    }
+  }
+
+  private async requestOnce<T>(prompt: string, schema: object, maxOutputTokens: number): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120_000);
     try {
@@ -162,7 +181,7 @@ export class GeminiGenerationProvider implements ApplicationGenerationProvider {
         }),
       });
       if (!response.ok) {
-        const raw = await response.text();
+        const raw = redactProviderDetail(await response.text(), this.apiKey);
         let detail = "";
         try {
           const parsed = JSON.parse(raw) as { error?: { message?: string; status?: string } };
@@ -175,21 +194,42 @@ export class GeminiGenerationProvider implements ApplicationGenerationProvider {
         throw new ApiError(502, "GEMINI_REQUEST_FAILED", `Gemini generation failed with status ${response.status}${detail ? ` (${detail})` : ""}.`);
       }
       const payload = await response.json() as GeminiResponse;
-      const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim();
+      const candidate = payload.candidates?.[0];
+      if (candidate?.finishReason === "MAX_TOKENS") throw new ApiError(502, "GEMINI_TRUNCATED", "Gemini reached its output token limit before completing the JSON response.");
+      if (candidate?.finishReason && candidate.finishReason !== "STOP") throw new ApiError(502, "GEMINI_OUTPUT_STOPPED", "Gemini stopped generation before returning a complete application.");
+      const text = candidate?.content?.parts?.filter((part) => !part.thought).map((part) => part.text ?? "").join("").trim();
       if (!text) throw new ApiError(502, "GEMINI_EMPTY_RESPONSE", "Gemini returned no structured output.");
       try {
-        return JSON.parse(text) as T;
+        const parsed: unknown = JSON.parse(text.replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, "$1"));
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new SyntaxError("Expected a JSON object");
+        return parsed as T;
       } catch {
         throw new ApiError(502, "GEMINI_INVALID_JSON", "Gemini returned invalid structured output.");
       }
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if ((error as Error).name === "AbortError") throw new ApiError(504, "GEMINI_TIMEOUT", "Gemini generation exceeded the two-minute limit.");
-      throw new ApiError(502, "GEMINI_UNAVAILABLE", "Gemini could not be reached from the ForgeWeb server.");
+      if (error instanceof SyntaxError) throw new ApiError(502, "GEMINI_INVALID_JSON", "Gemini returned an invalid JSON response envelope.");
+      throw new ApiError(502, "GEMINI_UNAVAILABLE", `Gemini could not be reached from the ForgeWeb server. ${networkFailureDetail(error)}`);
     } finally {
       clearTimeout(timeout);
     }
   }
+}
+
+function decodeBackendBundle(encoded: EncodedBackendBundle): ProviderManifest {
+  const paths: Array<[string, keyof EncodedBackendBundle]> = [
+    ["backend/app/main.py", "mainPy"],
+    ["backend/app/api/routes.py", "routesPy"],
+    ["backend/app/models/domain.py", "domainPy"],
+    ["backend/app/schemas/contracts.py", "contractsPy"],
+    ["backend/app/services/application_service.py", "servicePy"],
+  ];
+  return { files: paths.map(([path, field]) => ({
+    path,
+    content: Buffer.from(encoded[field] as string, "base64").toString("utf8"),
+    requirementIds: encoded.requirementIds,
+  })) };
 }
 
 type CompatibleProviderId = "openrouter" | "groq";
@@ -237,20 +277,7 @@ class OpenAiCompatibleGenerationProvider implements ApplicationGenerationProvide
 
   async generateBackendManifest(specification: MasterSpecification): Promise<ProviderManifest> {
     const encoded = await this.request<EncodedBackendBundle>(backendImplementationPrompt(specification), encodedBackendSchema, "forgeweb_python_backend", 3_500);
-    const paths: Array<[string, keyof EncodedBackendBundle]> = [
-      ["backend/app/main.py", "mainPy"],
-      ["backend/app/api/routes.py", "routesPy"],
-      ["backend/app/models/domain.py", "domainPy"],
-      ["backend/app/schemas/contracts.py", "contractsPy"],
-      ["backend/app/services/application_service.py", "servicePy"],
-    ];
-    return {
-      files: paths.map(([path, field]) => ({
-        path,
-        content: Buffer.from(encoded[field] as string, "base64").toString("utf8"),
-        requirementIds: encoded.requirementIds,
-      })),
-    };
+    return decodeBackendBundle(encoded);
   }
 
   private async request<T>(prompt: string, schema: object, schemaName: string, maxOutputTokens: number, responseMode: "json_schema" | "json_object" = "json_schema"): Promise<T> {
@@ -280,7 +307,7 @@ class OpenAiCompatibleGenerationProvider implements ApplicationGenerationProvide
         }),
       });
       if (!response.ok) {
-        const rawDetail = (await response.text()).replace(/\s+/g, " ");
+        const rawDetail = redactProviderDetail(await response.text(), this.apiKey).replace(/\s+/g, " ");
         const detail = rawDetail.includes('"failed_generation"')
           ? rawDetail.slice(0, rawDetail.indexOf('"failed_generation"')).slice(0, 240)
           : rawDetail.slice(0, 240);
@@ -297,7 +324,8 @@ class OpenAiCompatibleGenerationProvider implements ApplicationGenerationProvide
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if ((error as Error).name === "AbortError") throw new ApiError(504, "MODEL_TIMEOUT", `${this.id} generation exceeded the three-minute limit.`);
-      throw new ApiError(502, "MODEL_UNAVAILABLE", `${this.id} could not be reached from the ForgeWeb server.`);
+      if (error instanceof SyntaxError) throw new ApiError(502, "MODEL_INVALID_JSON", `${this.id} returned an invalid JSON response envelope.`);
+      throw new ApiError(502, "MODEL_UNAVAILABLE", `${this.id} could not be reached from the ForgeWeb server. ${networkFailureDetail(error)}`);
     } finally {
       clearTimeout(timeout);
     }
@@ -361,7 +389,7 @@ class GeminiPythonGenerationProvider implements ApplicationGenerationProvider {
     this.gemini = gemini;
     this.backendPrimary = backendPrimary;
     this.backendFallback = backendFallback;
-    this.model = `${gemini.model} → ${backendPrimary.model}${backendFallback ? ` / ${backendFallback.model}` : ""}`;
+    this.model = `${gemini.model} (frontend + backend; fallbacks: ${backendPrimary.model}${backendFallback ? ` / ${backendFallback.model}` : ""})`;
   }
 
   plan(prompt: string, fallback: MasterSpecification): Promise<ProviderPlan> {
@@ -403,16 +431,61 @@ class GeminiPythonGenerationProvider implements ApplicationGenerationProvider {
     }
     let backendManifest: ProviderManifest;
     try {
-      backendManifest = await this.backendPrimary.generateBackendManifest(specification);
-    } catch (primaryError) {
-      if (!this.backendFallback) throw primaryError;
+      backendManifest = await this.gemini.generateBackendManifest(specification);
+    } catch (geminiError) {
       try {
-        backendManifest = await this.backendFallback.generateBackendManifest(specification);
-      } catch (fallbackError) {
-        throw combinedProviderError("Python backend generation", primaryError, fallbackError);
+        backendManifest = await this.backendPrimary.generateBackendManifest(specification);
+      } catch (primaryError) {
+        if (!this.backendFallback) throw combinedProviderError("Python backend generation", geminiError, primaryError);
+        try {
+          backendManifest = await this.backendFallback.generateBackendManifest(specification);
+        } catch (fallbackError) {
+          throw new ApiError(502, "PROVIDER_CHAIN_FAILED", `Python backend generation failed. Gemini: ${providerErrorMessage(geminiError)} Primary fallback: ${providerErrorMessage(primaryError)} Secondary fallback: ${providerErrorMessage(fallbackError)}`);
+        }
       }
     }
     return composeProviderApplication(frontendManifest, backendManifest, specification);
+  }
+}
+
+type StageProvider = ApplicationGenerationProvider & {
+  generateFrontendManifest(specification: MasterSpecification): Promise<ProviderManifest>;
+  generateBackendManifest(specification: MasterSpecification): Promise<ProviderManifest>;
+};
+
+export class FrontendDualGeminiBackendProvider implements ApplicationGenerationProvider {
+  readonly id = "gemini-python" as const;
+  readonly mode = "ai" as const;
+  readonly model: string;
+  private readonly frontends: StageProvider[];
+  private readonly geminis: StageProvider[];
+  constructor(frontends: StageProvider[], geminis: StageProvider[]) {
+    this.frontends = frontends;
+    this.geminis = geminis;
+    this.model = `Frontend: ${frontends.map((provider) => provider.model).join(" → ")}; backend: ${geminis[0].model}`;
+  }
+
+  private async run<T>(stage: string, providers: StageProvider[], operation: (provider: StageProvider) => Promise<T>): Promise<T> {
+    const errors: string[] = [];
+    for (let index = 0; index < providers.length; index++) {
+      try { return await operation(providers[index]); }
+      catch (error) {
+        errors.push(`${providers[index].id} option ${index + 1}: ${providerErrorMessage(error)}`);
+        // Extra Google credentials are for failover, not shared-quota evasion.
+        if (providers[index].id === "google-gemini" && /status 429|RESOURCE_EXHAUSTED|quota exceeded/i.test(providerErrorMessage(error))) break;
+      }
+    }
+    throw new ApiError(502, "PROVIDER_CHAIN_FAILED", `${stage} failed. ${errors.join(" ")}`);
+  }
+
+  plan(prompt: string, fallback: MasterSpecification): Promise<ProviderPlan> {
+    return this.run("Architecture planning", this.geminis, (provider) => provider.plan(prompt, fallback));
+  }
+
+  async generate(specification: MasterSpecification): Promise<GeneratedFile[]> {
+    const frontend = await this.run("React frontend generation", [...this.frontends, ...this.geminis.slice(1)], (provider) => provider.generateFrontendManifest(specification));
+    const backend = await this.run("Python backend generation", this.geminis, (provider) => provider.generateBackendManifest(specification));
+    return composeProviderApplication(frontend, backend, specification);
   }
 }
 
@@ -448,6 +521,12 @@ export function createGenerationProviderFromEnv(environment: Record<string, stri
   const openRouter = openRouterKey ? new OpenAiCompatibleGenerationProvider("openrouter", openRouterKey, environment.FORGEWEB_OPENROUTER_MODEL ?? "openai/gpt-5.3-codex", "https://openrouter.ai/api/v1/chat/completions") : undefined;
   const groq = groqKey ? new OpenAiCompatibleGenerationProvider("groq", groqKey, environment.FORGEWEB_GROQ_MODEL ?? "qwen/qwen3.8-27b", "https://api.groq.com/openai/v1/chat/completions") : undefined;
   const gemini = geminiKey ? new GeminiGenerationProvider(geminiKey, environment.FORGEWEB_GEMINI_MODEL ?? "gemini-3-flash-preview") : undefined;
+  if (requestedMode === "frontend-dual-gemini-backend") {
+    if (!gemini || !groq || !openRouter) throw new Error("frontend-dual-gemini-backend requires Gemini, Groq and OpenRouter credentials.");
+    const keys = [...new Set([geminiKey, environment.GEMINI_FALLBACK_API_KEY_1, environment.GEMINI_FALLBACK_API_KEY_2].filter((key): key is string => Boolean(key?.trim())))];
+    const geminis = keys.map((key) => new GeminiGenerationProvider(key, environment.FORGEWEB_GEMINI_MODEL ?? "gemini-3-flash-preview"));
+    return new FrontendDualGeminiBackendProvider([groq, openRouter], geminis);
+  }
   if (["auto", "split", "gemini-python"].includes(requestedMode) && gemini && (groq || openRouter)) {
     return new GeminiPythonGenerationProvider(gemini, groq ?? openRouter!, groq && openRouter ? openRouter : undefined);
   }
@@ -536,7 +615,7 @@ export function applyProviderPlan(fallback: MasterSpecification, plan: ProviderP
       provider: provider.id,
       model: provider.model,
       message: provider.id === "gemini-python"
-        ? "Gemini planned the product and generates its React interface; Groq/OpenRouter generates the contract-matched Python FastAPI backend."
+        ? "Gemini plans the product and generates its React interface and Python FastAPI backend; Groq/OpenRouter remain available as fallbacks."
         : provider.id === "groq-openrouter"
         ? "Groq planned the product and design; OpenRouter generates the modular application with cross-provider fallback."
         : `Architecture and source are generated from the customer prompt by ${provider.id}.`,
@@ -630,7 +709,7 @@ function createBackendSupportFiles(specification: MasterSpecification): Provider
   return [
     { path: "backend/requirements.txt", content: "fastapi==0.116.1\nuvicorn[standard]==0.35.0\npydantic==2.11.7\npytest==8.4.1\nhttpx==0.28.1\n", requirementIds },
     { path: "backend/app/__init__.py", content: "# Generated application package.\n", requirementIds },
-    { path: "backend/app/repositories/application_repository.py", content: "class Repository:\n    def __init__(self): self._records = {}\n    def list(self): return list(self._records.values())\n    def get(self, record_id): return self._records.get(record_id)\n    def save(self, record): self._records[record['id']] = record; return record\n    def delete(self, record_id): return self._records.pop(record_id, None)\nrepository = Repository()\n", requirementIds },
+    { path: "backend/app/repositories/application_repository.py", content: persistentRepository, requirementIds },
     { path: "backend/app/security/access_control.py", content: "from fastapi import HTTPException\n\ndef require_role(role: str, allowed_roles: list[str]) -> None:\n    if role not in allowed_roles: raise HTTPException(status_code=403, detail='Forbidden')\n", requirementIds },
     { path: "backend/tests/test_api.py", content: "from fastapi.testclient import TestClient\nfrom app.main import app\n\ndef test_health():\n    response = TestClient(app).get('/health')\n    assert response.status_code == 200\n", requirementIds },
   ];

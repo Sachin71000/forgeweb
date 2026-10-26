@@ -24,6 +24,7 @@ import { AGENT_POLICY, createTasks, enforceImplementationTask } from "./policy.t
 import { ProjectWorkspaceService } from "./project-workspace.ts";
 import { applyProviderPlan, type ApplicationGenerationProvider } from "./providers/generation-provider.ts";
 import { JsonStore } from "./store.ts";
+import { repeatedLayout } from "./generation/design-diversity.ts";
 
 const stageIndexes: Record<Exclude<BuildStatus, "queued" | "awaiting_confirmation" | "failed" | "needs_context">, number> = {
   specifying: 0,
@@ -534,18 +535,18 @@ export class BuildWorkflow {
 
       await this.stage(buildId, "specifying", "Turning the idea into a proposed, versioned master specification.");
       const fallbackSpecification = compileSpecification(initial.projectId, sourcePrompt);
+      fallbackSpecification.designContext = {
+        seed: initial.projectId,
+        recentCompositions: Object.values(this.store.read().specifications)
+          .filter((spec) => spec.projectId !== initial.projectId && spec.status === "approved")
+          .slice(-8)
+          .map((spec) => spec.architecture.frontend.visualDirection ?? spec.architecture.frontend.pages.join(", "))
+          .map((description) => description.slice(0, 1_000)),
+      };
       let specification = fallbackSpecification;
       if (this.generationProvider) {
-        try {
-          const providerPlan = await this.generationProvider.plan(sourcePrompt, fallbackSpecification);
-          specification = applyProviderPlan(fallbackSpecification, providerPlan, this.generationProvider);
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : "Gemini planning failed validation.";
-          specification = {
-            ...fallbackSpecification,
-            generator: { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `AI planning fallback: ${reason}` },
-          };
-        }
+        const providerPlan = await this.generationProvider.plan(sourcePrompt, fallbackSpecification);
+        specification = applyProviderPlan(fallbackSpecification, providerPlan, this.generationProvider);
       }
       await this.store.mutate((database) => {
         database.specifications[specification.id] = specification;
@@ -631,16 +632,51 @@ export class BuildWorkflow {
       await this.stage(buildId, "generating", specification.generator?.mode !== "deterministic"
         ? `${specification.generator?.provider ?? "AI"} is generating the approved React frontend and contract-matched Python backend.`
         : "Generating a secure prompt-specific application with the deterministic local fallback.");
-      let files = generateDeterministicFiles(specification);
+      let files: GeneratedFile[];
       if (this.generationProvider && specification.generator?.mode !== "deterministic") {
+        let repaired = false;
         try {
           files = await this.generationProvider.generate(specification);
         } catch (error) {
-          const reason = error instanceof Error ? error.message : "Gemini implementation failed validation.";
-          specification.generator = { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", message: `AI implementation fallback: ${reason}` };
-          await this.store.mutate((database) => { database.specifications[specification.id] = specification; });
-          files = generateDeterministicFiles(specification);
+          if (!(error instanceof ApiError) || error.status !== 422 || !error.code.startsWith("MODEL_")) throw error;
+          repaired = true;
+          await this.stage(buildId, "generating", `Repairing invalid model output: ${error.message}`);
+          files = await this.generationProvider.generate({
+            ...specification,
+            designContext: {
+              seed: specification.designContext?.seed ?? specification.projectId,
+              recentCompositions: specification.designContext?.recentCompositions ?? [],
+              revisionFeedback: `Validation rejected the previous output (${error.code}): ${error.message}. Correct this in the complete application; preserve all approved requirements and design constraints.`,
+            },
+          });
         }
+        const previousLayouts = () => {
+          const state = this.store.read();
+          return Object.values(state.projects)
+            .filter((project) => project.id !== specification.projectId && project.currentVersionId)
+            .slice(-12)
+            .map((project) => state.versionFiles[project.currentVersionId!] ?? []);
+        };
+        if (repeatedLayout(files, previousLayouts())) {
+          if (repaired) throw new ApiError(422, "REPEATED_LAYOUT", "The repaired output repeats an existing layout. The generation repair limit was reached; no template was substituted.");
+          await this.stage(buildId, "generating", "Repeated layout detected. Requesting a new composition from the approved architecture.");
+          files = await this.generationProvider.generate({
+            ...specification,
+            designContext: {
+              seed: specification.designContext?.seed ?? specification.projectId,
+              recentCompositions: specification.designContext?.recentCompositions ?? [],
+              revisionFeedback: "Rejected: preview repeats an existing project's HTML composition. Redesign the information hierarchy and section composition while preserving the approved customer requirements. Update the React implementation and preview together.",
+            },
+          });
+          if (repeatedLayout(files, previousLayouts())) {
+            throw new ApiError(422, "REPEATED_LAYOUT", "The model repeated an existing layout after a redesign attempt. No template was substituted. Please retry generation.");
+          }
+        }
+      } else {
+        if (specification.generator?.mode === "ai" || specification.generator?.mode === "gemini") {
+          throw new ApiError(503, "PROVIDER_UNAVAILABLE", "The approved AI provider is unavailable. Restore the API configuration before generating.");
+        }
+        files = generateDeterministicFiles(specification);
       }
       const implementationTask = tasks.find((task) => task.role === "implementation");
       if (!implementationTask) throw new ApiError(500, "TASK_PLAN_INVALID", "Implementation task is missing.");

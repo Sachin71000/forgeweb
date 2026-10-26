@@ -12,3 +12,12 @@ ui-audit-*.png
 .env
 .env.*
 !.env.example
+
+# Local generated customer applications, data and release artifacts
+Bloom_Brew_Repaired/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.zip
+node-compile-cache/
+ppt_render_*/

@@ -23,8 +23,8 @@ The workspace history is available from a Codex-style collapsible drawer with Ne
 - Prompt-to-requirements compilation with stable requirement IDs.
 - Prompt-specific architecture covering frontend, backend, data, security, delivery, and system boundaries.
 - Product-intent extraction for commerce, inventory, scheduling, portals, and general applications, including stable product naming and domain entities.
-- Staged server-side generation: Gemini creates prompt-specific architecture and React UI; Groq/OpenRouter creates the contract-matched Python FastAPI backend.
-- Cross-provider and local fallback without exposing provider keys or blocking a live demonstration.
+- Staged server-side generation: Gemini plans architecture; Groq then OpenRouter generates the React frontend; Gemini generates the contract-matched Python FastAPI backend. Optional extra Gemini credentials provide service failover.
+- Explicit provider failures with bounded retries. Failed AI generation is not silently replaced by a fixed local template.
 - A hard `awaiting_confirmation` gate: no source files exist before approval.
 - An **Edit prompt** action beside confirmation that returns focus to the original composer before generation.
 - React and TypeScript customer-application generation.
@@ -32,7 +32,7 @@ The workspace history is available from a Codex-style collapsible drawer with Ne
 - A Codex-style collapsible top-left drawer with **New chat** and persistent project history.
 - Python FastAPI backend contracts, Pydantic validation, role/ownership policy, and audit boundaries.
 - Customer-app capability planning for React, Git, GSAP, Anime.js, and reviewed React Bits patterns.
-- Karpathy-derived coding discipline and gstack-informed bounded specialist tasks.
+- Karpathy-derived coding discipline, gstack-informed tasks, and Ruflo-inspired planning/handoff/review rules. Ruflo swarm execution is not enabled.
 - Independent scope and traceability review.
 - Deterministic validation and a requirement-to-file evidence graph.
 - Persistent local projects, immutable version snapshots, and safe restore in an atomic JSON store.
@@ -86,7 +86,7 @@ corepack prepare pnpm@latest --activate
 
 ## Prompt-specific AI generation
 
-ForgeWeb works without an external model, but prompt-unique generation uses Gemini for architecture and React frontend generation, then Groq (with OpenRouter fallback) for the Python FastAPI backend. Copy `.env.example` to `.env.local` and set rotated keys only on the server:
+Prompt-unique generation requires available model providers. The recommended mapping uses Gemini for architecture/backend and Groq then OpenRouter for frontend. The optional deterministic mode is a separate demonstration mode, not a substitute for successful AI generation. Copy `.env.example` to `.env.local` only on first setup; never overwrite an existing key file:
 
 ```powershell
 Copy-Item .env.example .env.local
@@ -96,15 +96,37 @@ Copy-Item .env.example .env.local
 GROQ_API_KEY=your_rotated_key_here
 OPENROUTER_API_KEY=your_rotated_key_here
 GEMINI_API_KEY=your_rotated_key_here
+GEMINI_FALLBACK_API_KEY_1=
+GEMINI_FALLBACK_API_KEY_2=
 FORGEWEB_GROQ_MODEL=qwen/qwen3.8-27b
 FORGEWEB_OPENROUTER_MODEL=openai/gpt-5.3-codex
 FORGEWEB_GEMINI_MODEL=gemini-3-flash-preview
-FORGEWEB_GENERATION_MODE=auto
+FORGEWEB_GENERATION_MODE=frontend-dual-gemini-backend
 ```
 
 Vite loads `.env.local` before it constructs the embedded development API. Provider keys remain in the Node server and are never returned to the browser, written to generated projects, or included in ZIP exports. The run commands use Node's system CA store for secure provider connections on inspected Windows networks; TLS verification remains enabled.
 
 The provider pipeline performs schema-constrained architecture planning before confirmation and modular code generation after confirmation. See [the master generation prompt](./docs/MASTER_GENERATION_PROMPT.md).
+
+Fallback keys are optional and do not bypass Google project quotas. OpenRouter requires sufficient credit for its configured model; a valid key does not guarantee generation quota. Do not paste credentials into chat or commit them.
+
+## Current verification and limitations
+
+The latest local regression run passed 79 tests, including provider failure routing, cross-origin rejection, invalid inputs, restart recovery, Python syntax export checks and a curated SQLite booking repair. These tests do not certify arbitrary generated applications as production-ready. Previously reported dependency advisories remain open; see [release audit](docs/PRODUCT-RELEASE-AUDIT.md) and [testing checklist](docs/PROVIDER-SECURITY-TESTING-2026-10-26.md).
+
+The Files tab presents one combined Frontend entry and one Backend entry while preserving actual files in exports. The embedded preview is sandboxed and offline: it is not a running Python backend, and demo interactions must not be mistaken for durable customer transactions. Run and test an exported backend before accepting customer data.
+
+New provider-generated backend support uses SQLite at `data/application.sqlite3` (override `APP_DATABASE_PATH`). Legacy/generated service compatibility still requires runtime testing. Local databases and generated customer exports are excluded from Git.
+
+Optional developer tools (installed separately, not app dependencies):
+
+```powershell
+npm install -g ruflo@3.63.3 @alibaba-group/open-code-review@1.13.3
+ruflo --version
+ocr --version
+```
+
+Ruflo-inspired rules are sent to all providers, but its CLI/MCP runtime is not automatically invoked. See [integration boundaries](docs/RUFLO-GENERATION-DISCIPLINE.md). No automatic public deployment is configured by these tools.
 
 ## Quick start
 

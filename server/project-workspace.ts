@@ -11,6 +11,7 @@ import { buildGeneratedFrontend, expectedFrontendTemplate, expectedLocalFrontend
 import { ApiError, assertPrompt, digest, id, now, safePath, slugify } from "./lib.ts";
 import { JsonStore } from "./store.ts";
 import { createProjectZip } from "./zip.ts";
+import { validatePythonSyntax } from "./python-validation.ts";
 
 type EditScope = "frontend" | "backend" | "database" | "fullstack";
 
@@ -268,6 +269,10 @@ export class ProjectWorkspaceService {
 
   private async performProfessionalFrontendUpgrade(projectId: string): Promise<void> {
     const workspace = this.get(projectId);
+    // Reads must never replace a customer-specific AI design with a local template.
+    if (workspace.specification?.generator?.mode === "ai" || workspace.specification?.generator?.mode === "gemini"
+      || workspace.files.some((file) => (file.path === "frontend/preview.html" || file.path === "frontend/src/App.tsx")
+        && file.content.includes("forgeweb-ai-generated-v1"))) return;
     if (hasExpectedFrontend(workspace.files, workspace.specification) && workspace.specification?.architecture) return;
     if (!workspace.specification || workspace.files.length === 0 || !workspace.project.currentBuildId) return;
     const specification = normalizeMasterSpecification(workspace.specification);
@@ -386,6 +391,7 @@ export class ProjectWorkspaceService {
     const workspace = await this.getReady(projectId);
     if (!workspace.currentVersion) throw new ApiError(409, "PROJECT_NOT_GENERATED", "Generate the project before exporting it.");
     const checks = validateStoredProject(workspace.files);
+    checks.push(await validatePythonSyntax(workspace.files));
     const passed = checks.every((check) => check.status === "passed");
     await this.store.mutate((database) => {
       const project = database.projects[projectId];

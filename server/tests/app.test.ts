@@ -27,6 +27,17 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
     assert.equal(health.generation.mode, "deterministic");
     assert.equal(health.generation.configured, false);
 
+    const malformed = await fetch(`${baseUrl}/api/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: "{broken" });
+    assert.equal(malformed.status, 400);
+    assert.equal((await malformed.json() as { error: { code: string } }).error.code, "INVALID_JSON");
+    const oversized = await fetch(`${baseUrl}/api/builds`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "a".repeat(70_000) }) });
+    assert.equal(oversized.status, 413);
+    assert.equal((await fetch(`${baseUrl}/api/builds/missing`)).status, 404);
+    assert.equal((await fetch(`${baseUrl}/api/projects/missing/preview`)).status, 404);
+    assert.equal((await fetch(`${baseUrl}/api/not-a-route`)).status, 404);
+    assert.equal(healthResponse.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(healthResponse.headers.get("cache-control"), "no-store");
+
     const invalidResponse = await fetch(`${baseUrl}/api/builds`, {
       method: "POST",
       headers: { "content-type": "application/json" },

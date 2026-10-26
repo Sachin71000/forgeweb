@@ -31,7 +31,7 @@ import SiteNav from "./components/SiteNav";
 import BuildProposal from "./components/BuildProposal";
 import ProjectLibrary from "./components/ProjectLibrary";
 import FloatingLines from "./components/react-bits/FloatingLines";
-import { confirmBuild, createBuild, waitForBuild, type BuildResponse } from "./lib/forgeweb-api";
+import { BuildWaitTimeoutError, confirmBuild, createBuild, waitForBuild, type BuildResponse } from "./lib/forgeweb-api";
 
 const floatingLinesGradient = ["#50c7f0", "#000000", "#0ac0e0"];
 
@@ -119,8 +119,8 @@ function Hero() {
         setStatusDetail(completed.stageDetail);
       }
     } catch (error) {
-      setStage(-1);
-      setStatusDetail(error instanceof Error ? `Build stopped — ${error.message}` : "Build stopped unexpectedly.");
+      if (!(error instanceof BuildWaitTimeoutError)) setStage(-1);
+      setStatusDetail(error instanceof BuildWaitTimeoutError ? error.message : error instanceof Error ? `Build stopped — ${error.message}` : "Build stopped unexpectedly.");
     } finally {
       setRunning(false);
     }
@@ -146,7 +146,7 @@ function Hero() {
       setStage(3);
       setStatusDetail(completed.stageDetail);
     } catch (error) {
-      setStatusDetail(error instanceof Error ? `Build stopped — ${error.message}` : "Build stopped unexpectedly.");
+      setStatusDetail(error instanceof BuildWaitTimeoutError ? error.message : error instanceof Error ? `Build stopped — ${error.message}` : "Build stopped unexpectedly.");
     } finally {
       setRunning(false);
     }

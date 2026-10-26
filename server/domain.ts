@@ -56,6 +56,11 @@ export type MasterSpecification = {
   version: number;
   status: "proposed" | "approved";
   prompt: string;
+  designContext?: {
+    seed: string;
+    recentCompositions: string[];
+    revisionFeedback?: string;
+  };
   productKind: ProductKind;
   productName: string;
   summary: string;

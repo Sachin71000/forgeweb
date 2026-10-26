@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ForgeDatabase } from "./domain.ts";
+import { id, now } from "./lib.ts";
 
 const emptyDatabase = (): ForgeDatabase => ({
   schemaVersion: 2,
@@ -37,7 +38,25 @@ export class JsonStore {
         versions: parsed.versions ?? {},
         versionFiles: parsed.versionFiles ?? {},
       };
-      if (schemaVersion === 1) await this.persist();
+      let recovered = false;
+      for (const build of Object.values(this.database.builds)) {
+        if (!["queued", "specifying", "planning", "generating", "reviewing", "validating"].includes(build.status)) continue;
+        recovered = true;
+        const timestamp = now();
+        const message = "Build interrupted by a server restart. Start a new build to retry; no provider requests were replayed.";
+        build.status = "failed";
+        build.error = { code: "BUILD_INTERRUPTED", message };
+        build.stageDetail = message;
+        build.updatedAt = timestamp;
+        const project = this.database.projects[build.projectId];
+        if (project?.currentBuildId === build.id) { project.status = "failed"; project.updatedAt = timestamp; }
+        for (const taskId of build.taskIds) {
+          const task = this.database.tasks[taskId];
+          if (task && task.status !== "completed") task.status = "failed";
+        }
+        (this.database.events[build.id] ??= []).push({ id: id("event"), buildId: build.id, type: "build.failed", message, timestamp, data: { code: "BUILD_INTERRUPTED" } });
+      }
+      if (schemaVersion === 1 || recovered) await this.persist();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       this.database = emptyDatabase();
@@ -58,8 +77,8 @@ export class JsonStore {
       const working = structuredClone(this.database);
       try {
         result = await mutation(working);
+        await this.persist(working);
         this.database = working;
-        await this.persist();
       } catch (error) {
         failure = error;
       }
@@ -69,10 +88,10 @@ export class JsonStore {
     return result;
   }
 
-  private async persist(): Promise<void> {
-    if (!this.database) return;
+  private async persist(database = this.database): Promise<void> {
+    if (!database) return;
     const temporary = `${this.filePath}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(this.database, null, 2)}\n`, "utf8");
+    await writeFile(temporary, `${JSON.stringify(database, null, 2)}\n`, "utf8");
     await rename(temporary, this.filePath);
   }
 }

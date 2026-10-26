@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { workspaceFileEntries } from "../lib/workspace-file-entries";
 import {
   applyProjectEdit,
   downloadProjectZip,
@@ -76,10 +77,11 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
+  const fileEntries = useMemo(() => workspaceFileEntries(workspace?.files ?? initialFilePaths.map((path) => ({ path, content: "", digest: "", requirementIds: [] }))), [workspace, initialFilePaths]);
   useEffect(() => {
-    if (!workspace?.files.length || workspace.files.some((file) => file.path === selectedPath)) return;
-    setSelectedPath(workspace.files.find((file) => file.path === "frontend/src/App.tsx")?.path ?? workspace.files[0].path);
-  }, [selectedPath, workspace]);
+    if (!fileEntries.length || fileEntries.some((file) => file.path === selectedPath)) return;
+    setSelectedPath(fileEntries.find((file) => file.path === "Frontend")?.path ?? fileEntries[0].path);
+  }, [selectedPath, fileEntries]);
 
   const currentVersionId = workspace?.currentVersion?.id;
   const previewSrc = useMemo(
@@ -100,8 +102,8 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
     return () => { active = false; };
   }, [previewSrc, tab]);
 
-  const files = workspace?.files.map((file) => file.path) ?? initialFilePaths;
-  const selectedFile = workspace?.files.find((file) => file.path === selectedPath);
+  const files = fileEntries.map((file) => file.path);
+  const selectedFile = workspace ? fileEntries.find((file) => file.path === selectedPath) : undefined;
   const applyEdit = async () => {
     if (editBusy || editPrompt.trim().length < 12) return;
     setEditBusy(true);
@@ -208,7 +210,7 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
       {tab === "files" && (
         <div className="workspace-files" role="tabpanel">
           <aside className="workspace-file-list" aria-label="Generated files">
-            <div className="workspace-file-list-heading"><span>Project files</span><b>{files.length}</b></div>
+            <div className="workspace-file-list-heading"><span>Project entries</span><b>{files.length}</b></div>
             {files.map((path) => (
               <button type="button" className={path === selectedPath ? "is-active" : ""} aria-pressed={path === selectedPath} onClick={() => { setSelectedPath(path); setCopied(false); }} key={path}>
                 <FileCode2 /><span>{path}</span>
@@ -217,7 +219,7 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
           </aside>
           <section className="workspace-code-viewer" aria-label={selectedFile ? `${selectedFile.path} source code` : "Generated source code"}>
             <header>
-              <div><span>{selectedFile?.path ?? "Select a generated file"}</span>{selectedFile && <small>{selectedFile.content.split("\n").length} lines · {selectedFile.digest.slice(0, 10)}</small>}</div>
+              <div><span>{selectedFile?.path ?? "Select a generated file"}</span>{selectedFile && <small>{selectedFile.content.split("\n").length} lines · {selectedFile.digest === "Combined view" ? "Combined source view · ZIP keeps original files" : selectedFile.digest.slice(0, 10)}</small>}</div>
               <button type="button" onClick={() => void copySource()} disabled={!selectedFile}><Copy />{copied ? "Copied" : "Copy"}</button>
             </header>
             {selectedFile ? <pre tabIndex={0}><code>{selectedFile.content}</code></pre> : <div className="workspace-code-empty"><FileCode2 /><p>Select a file to inspect its complete stored source.</p></div>}

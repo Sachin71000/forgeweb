@@ -1,9 +1,12 @@
 import type { MasterSpecification } from "../domain.ts";
+import { RUFLO_DISCIPLINE_PROMPT } from "./ruflo-discipline.ts";
 
 export const FORGEWEB_MASTER_GENERATION_PROMPT = `You are ForgeWeb's principal product architect, UI director, and senior full-stack implementation engine.
 
 MISSION
 Transform the customer's approved request into a distinct, coherent, runnable application. The customer's prompt is the product source of truth. ForgeWeb's own dark interface is never a template for the generated customer application.
+
+${RUFLO_DISCIPLINE_PROMPT}
 
 NON-NEGOTIABLE PRODUCT IDENTITY
 1. Name the product from its domain, audience, and value proposition. Never use Modern, ForgeWeb, Dashboard, Workspace, Inventory OS, or Nexa Market unless the customer explicitly supplied that name.
@@ -39,8 +42,8 @@ RESPONSIVE EXPERIENCE
 
 STAGED FULL-STACK OUTPUT
 - Stage 1: Gemini produces the architecture, requirements, design fingerprint, navigation, interactions, and shared API route contract.
-- Stage 2 (only after confirmation): Gemini produces a modular React + TypeScript frontend from the approved architecture and exact route contract.
-- Stage 3: Groq or OpenRouter produces a modular Python FastAPI backend that implements the same approved route contract.
+- Stage 2 (only after confirmation): the configured frontend provider produces a modular React + TypeScript frontend from the approved architecture and exact route contract. Follow the server-selected provider routing; do not invent a different provider assignment.
+- Stage 3: Gemini produces a modular Python FastAPI backend that implements the same approved route contract. Groq and OpenRouter remain fallback providers for generation stages.
 - Never let the frontend model invent an endpoint the backend model was not given. Never let the backend silently rename a route.
 - Include a runnable frontend package.json, backend/requirements.txt, README.md, REQUIREMENTS.md, ARCHITECTURE.md, INTERACTIONS.md, shared/api-contract.json, tests, and frontend/preview.html.
 - Generate 15-30 focused files. At least six must be frontend source modules and at least five must be backend source modules.
@@ -63,7 +66,9 @@ export function planningPrompt(prompt: string, fallback: MasterSpecification): s
     "CUSTOMER PROMPT:",
     prompt,
     "MANDATORY DESIGN SEED:",
-    designSeed(prompt),
+    fallback.designContext?.seed ?? designSeed(`${fallback.projectId}:${prompt}`),
+    "RECENT PROJECT COMPOSITIONS TO DIFFERENTIATE FROM (customer instructions still take priority):",
+    JSON.stringify(fallback.designContext?.recentCompositions ?? []),
     "DETERMINISTIC SAFETY BASELINE (use for missing security details, not visual design):",
     JSON.stringify({
       productKind: fallback.productKind,
@@ -75,12 +80,13 @@ export function planningPrompt(prompt: string, fallback: MasterSpecification): s
   ].join("\n\n");
 }
 
-export function frontendImplementationPrompt(specification: MasterSpecification): string {
+export function frontendImplementationPrompt(specification: MasterSpecification, includePreview = true): string {
   const compactFrontendSpecification = {
     productName: specification.productName,
     productKind: specification.productKind,
     summary: specification.summary,
-    customerPrompt: specification.prompt.slice(0, 1_500),
+    customerPrompt: specification.prompt,
+    designContext: specification.designContext,
     roles: specification.roles,
     entities: specification.entities,
     requirements: specification.requirements.map(({ id, title, description, priority }) => ({ id, title, description, priority })),
@@ -92,6 +98,7 @@ export function frontendImplementationPrompt(specification: MasterSpecification)
   return [
     "You are the frontend implementation stage. Generate a distinct customer-facing React application from this approved architecture. Do not generate backend files.",
     "PROMPT AUTHORITY: Every explicit visual and structural instruction in customerPrompt overrides defaults. Verify palette, background luminance, navigation, public/authenticated surfaces, and layout against the customerPrompt before returning JSON. Never reuse ForgeWeb's legacy dark dashboard, Keep every... headline, 84.6% chart, or Live workspace composition.",
+    "DESIGN DIVERSITY: Use designContext.seed to explore a fresh composition, not random colors. Differentiate information hierarchy, navigation placement, section sequencing, and domain workflows from recentCompositions while obeying explicit customer layout constraints. If revisionFeedback is present, resolve it with real structural changes in both React and preview; changing text, classes, or inserting empty wrappers does not resolve it.",
     "COMPACT APPROVED FRONTEND CONTRACT:",
     JSON.stringify(compactFrontendSpecification),
     "REQUIRED FRONTEND PATHS:",
@@ -102,9 +109,10 @@ export function frontendImplementationPrompt(specification: MasterSpecification)
       "frontend/src/main.tsx",
       "frontend/src/styles.css",
       "frontend/src/lib/api.ts",
-      "frontend/preview.html",
+      ...(includePreview ? ["frontend/preview.html"] : []),
     ].join("\n"),
-    "Add prompt-specific page and component modules under frontend/src. The preview must demonstrate every major navbar item and CTA with safe inline JavaScript and realistic product data. Its composition, palette, copy, and navigation must follow the approved design fingerprint—not ForgeWeb's shell. Return exactly 9 concise files: all seven listed required paths plus two prompt-specific component/page modules. Keep preview.html under 9,000 characters, styles.css under 5,500, App.tsx under 4,500, and every other file under 1,500. Prefer compact arrays and reusable CSS; do not add redundant variants, assets, lockfiles, tests, or configuration.",
+    'package.json MUST include scripts.dev="vite --host 127.0.0.1", scripts.build="tsc --noEmit && vite build", and scripts.test="node --test"; include React, React DOM, Vite, TypeScript and React type packages as dependencies/devDependencies. Use the automatic React JSX runtime. The root index.html and tsconfig.json are supplied by ForgeWeb. Do not omit scripts or return a dependency-only package file.',
+    `Add two prompt-specific page/component modules under frontend/src. Return exactly ${includePreview ? "9" : "8"} concise files: all listed required paths plus those two modules. ${includePreview ? "The preview must demonstrate every major navbar item and CTA with safe inline JavaScript and realistic product data, following the approved design. Keep preview.html under 9000 characters." : "Do NOT return preview.html; a separate stage will build it from these React sources. Focus on working React source and consistent imports."} Keep styles.css under 5500 characters, App.tsx under 4500, and every other file under 1500. Prefer compact arrays and reusable CSS; do not add redundant variants, assets, lockfiles, tests, or configuration.`,
   ].join("\n\n");
 }
 
@@ -120,6 +128,7 @@ export function backendImplementationPrompt(specification: MasterSpecification):
     routes: specification.architecture.backend.routes ?? [],
     dataRules: specification.architecture.data.rules,
     security: specification.architecture.security,
+    revisionFeedback: specification.designContext?.revisionFeedback,
   };
   return [
     "You are the backend implementation stage. Generate a modular Python 3.12 FastAPI backend from this approved architecture. Do not generate frontend files.",
@@ -128,6 +137,7 @@ export function backendImplementationPrompt(specification: MasterSpecification):
     "THESE API ROUTES ARE AN IMMUTABLE CONTRACT:",
     JSON.stringify(specification.architecture.backend.routes ?? []),
     "REQUIRED BACKEND PATHS:",
+    "Repository contract (immutable): repository.list(collection='default'), get(record_id, collection='default'), save(collection, record) (record must include id), delete(record_id, collection='default'). Repository uses SQLite with APP_DATABASE_PATH (default data/application.sqlite3). Do not use mismatched argument order or invent methods. Use model_dump(mode='json') for Pydantic dates before persistence. Never self-grant a role by passing a hardcoded role as the authenticated user.",
     [
       "backend/app/main.py",
       "backend/app/api/routes.py",

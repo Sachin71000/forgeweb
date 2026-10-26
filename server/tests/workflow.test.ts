@@ -19,7 +19,7 @@ async function fixture() {
 }
 
 async function waitForBuild(workflow: BuildWorkflow, buildId: string, expected: string[]) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 2_000; attempt += 1) {
     const build = workflow.get(buildId);
     if (expected.includes(build.status)) return build;
     await new Promise((resolve) => setTimeout(resolve, 5));

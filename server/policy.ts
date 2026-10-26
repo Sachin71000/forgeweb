@@ -1,5 +1,6 @@
 import type { AgentTask, GeneratedFile, MasterSpecification } from "./domain.ts";
 import { ApiError, digest, id } from "./lib.ts";
+import { RUFLO_DISCIPLINE } from "./generation/ruflo-discipline.ts";
 
 const principles = [
   "Think before coding: expose material assumptions and ambiguity.",
@@ -14,6 +15,7 @@ export const AGENT_POLICY = Object.freeze({
   sourceRevision: "2c60614",
   sourceDigest: digest(principles.join("\n")),
   workflowReference: "https://github.com/garrytan/gstack",
+  orchestrationDiscipline: RUFLO_DISCIPLINE,
   principles,
 });
 
@@ -37,7 +39,7 @@ export function createTasks(buildId: string, specification: MasterSpecification)
       role: "engineering_planner",
       objective: "Convert the approved specification into a minimal, ordered implementation plan.",
       allowedPaths: [],
-      simplestSufficientApproach: "Use one secure TypeScript service boundary and explicit domain contracts.",
+      simplestSufficientApproach: "Freeze the shared route and persistence contracts before the React frontend and Python backend handoff.",
       changeBudget: { maxFiles: 0, maxAddedLines: 0, maxDeletedLines: 0 },
       acceptanceCriteria: ["Every P0 requirement is assigned to generated code and validation."],
       validationPlan: ["Check requirement coverage before generation."],
