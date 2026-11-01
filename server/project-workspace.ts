@@ -11,11 +11,17 @@ import { buildGeneratedFrontend, expectedFrontendTemplate, expectedLocalFrontend
 import { ApiError, assertPrompt, digest, id, now, safePath, slugify } from "./lib.ts";
 import { JsonStore } from "./store.ts";
 import { createProjectZip } from "./zip.ts";
-import { validatePythonSyntax } from "./python-validation.ts";
+import { validatePythonSyntax, validatePythonModuleLinks } from "./python-validation.ts";
+import { ProjectGraphify } from './project-graphify.ts';
+import { dirname, join } from 'node:path';
+import {sourceValidation,versionSourceHash} from './version-validation.ts';
+import type {ApplicationGenerationProvider} from './providers/generation-provider.ts';
+import {applyEditPatch} from './generation/project-edit.ts';
 
 type EditScope = "frontend" | "backend" | "database" | "fullstack";
 
 export type EditResult = {
+  editContext?: { status:string; paths:string[]; characters:number };
   workspace: ProjectWorkspace;
   modifiedFiles: string[];
   phases: string[];
@@ -24,7 +30,7 @@ export type EditResult = {
 function databaseInfo(specification?: MasterSpecification): GeneratedDatabaseInfo {
   const entities = specification?.architecture?.data?.entities ?? specification?.entities ?? [];
   return {
-    engine: specification?.architecture?.data?.database ?? (specification ? "PostgreSQL" : "Not required"),
+    engine: specification ? "SQLite" : "Not required",
     schemaSource: "Approved master specification",
     tables: entities.map((entity) => ({
       name: entity.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase() + "s",
@@ -46,7 +52,7 @@ function validateStoredProject(files: GeneratedFile[]): ValidationCheck[] {
     ["Package configuration", byPath.has("package.json"), "package.json is present."],
     ["Frontend source", app.includes("export default function App") && byPath.has("frontend/src/main.tsx"), "React entrypoint and App component are present."],
     ["Frontend styles", Boolean(css) && openBraces === closeBraces, `${openBraces} opening and ${closeBraces} closing CSS braces.`],
-    ["Professional preview source", preview.startsWith("<!doctype html>") && preview.includes("</html>") && hasGeneratedFrontendMarker(preview) && preview.includes("<header"), "Stored preview is a complete professional application document with responsive navigation."],
+    ["Professional preview source", /^\s*<!doctype html>/i.test(preview) && /<\/html>/i.test(preview) && hasGeneratedFrontendMarker(preview) && /<(?:header|nav)[\s>]/i.test(preview), "Stored preview is a complete professional application document with responsive navigation."],
     ["Backend source", (byPath.has("backend/app/main.py") && byPath.has("backend/app/schemas/contracts.py")) || (byPath.has("backend/src/index.ts") && byPath.has("backend/src/api/contracts.ts")), "FastAPI or legacy typed backend entrypoint and contracts are present."],
     ["Security boundary", byPath.has("backend/app/security/access_control.py") || byPath.has("backend/src/security/access-control.ts"), "Server access-control source is present."],
     ["Architecture", byPath.has("ARCHITECTURE.md"), "Architecture contract is present."],
@@ -193,8 +199,9 @@ function cssEdit(prompt: string): string {
   if (/card/i.test(prompt) && /modern|clean/i.test(prompt)) rules.push(".generated-card { box-shadow: 0 24px 70px rgba(0,0,0,.24); transform: translateZ(0); }");
   if (/hero/i.test(prompt) && /clean|simple|reduce|small/i.test(prompt)) rules.push(".generated-hero { max-width: 760px; padding-block: clamp(3.5rem, 7vw, 6rem); } .generated-hero h1 { max-width: 12ch; }");
   const colors: Record<string, string> = { blue: "#56c8ff", purple: "#bd8cff", pink: "#ff8bd8", orange: "#ffae57", green: "#8df59a", cyan: "#50c7f0", lime: "#dfff68" };
+  if(/cream|ivory|beige/i.test(prompt)&&/background/i.test(prompt))rules.push('body, .app-shell, .workspace, .generated-hero { background: #f7f2e7; color: #193b31; }');
   for (const [name, value] of Object.entries(colors)) if (new RegExp(`\\b${name}\\b`, "i").test(prompt)) rules.push(`:root { --generated-accent: ${value}; } .eyebrow, .generated-card span { color: var(--generated-accent) !important; } .signal-dot { background: var(--generated-accent); }`);
-  if (rules.length === 0) rules.push(".generated-card { border-color: rgba(223,255,104,.22); transition: transform .2s ease, border-color .2s ease; } .generated-card:hover { transform: translateY(-3px); }");
+  if (rules.length === 0) throw new ApiError(422,'EDIT_UNSUPPORTED','This local editor supports styling only. Configure an AI provider for functionality changes. No files changed.');
   return `\n\n/* ForgeWeb scoped design edit */\n${rules.join("\n")}\n`;
 }
 
@@ -202,43 +209,30 @@ function applyScopedEdit(sourceFiles: GeneratedFile[], prompt: string): { files:
   const files = structuredClone(sourceFiles);
   const modified = new Set<string>();
   const scope = classifyEdit(prompt);
-  const intentionallyInvalid = /remove.*closing.*brace|make.*invalid|broken code/i.test(prompt);
+  if(scope!=='frontend'||/search|filter|checkout|sign.?in|sign.?up|auth|booking|reservation|payment|endpoint|broken code|make.*invalid/i.test(prompt))throw new ApiError(422,'EDIT_UNSUPPORTED','General changes require a configured AI editor. The local editor supports styling only; no files changed.');
 
   if (scope === "frontend" || scope === "fullstack") {
     const patch = cssEdit(prompt);
-    replaceFile(files, "frontend/src/styles.css", (content) => intentionallyInvalid ? content.replace(/}\s*$/, "") : content + patch, modified);
+    replaceFile(files, "frontend/src/styles.css", (content) => content + patch, modified);
     replaceFile(files, "frontend/preview.html", (content) => content.replace("</style>", patch + "\n</style>"), modified);
-    if (/phone number|registration/i.test(prompt)) {
-      replaceFile(files, "frontend/src/App.tsx", (content) => content.replace("export default function App()", 'const registrationFields = ["email", "phoneNumber"] as const;\n\nexport default function App()'), modified);
-    }
-  }
-
-  if (scope === "backend" || scope === "fullstack") {
-    if (/delete|remov/i.test(prompt) && /task|record/i.test(prompt)) {
-      replaceFile(files, "backend/src/api/contracts.ts", (content) => content + "\nexport type DeleteRecordInput = { id: string; reason?: string };\n", modified);
-      replaceFile(files, "backend/src/index.ts", (content) => content + '\nexport const routes = { deleteRecord: "DELETE /v1/records/:id" } as const;\n', modified);
-    } else if (/phone number|registration/i.test(prompt)) {
-      replaceFile(files, "backend/src/api/contracts.ts", (content) => content + "\nexport type RegistrationInput = { email: string; phoneNumber: string };\n", modified);
-    } else {
-      replaceFile(files, "backend/src/api/contracts.ts", (content) => content + `\nexport type ScopedChange_${digest(prompt).slice(7, 15)} = { requestId: string };\n`, modified);
-    }
-  }
-
-  if (scope === "database" || scope === "fullstack") {
-    replaceFile(files, "backend/src/domain/model.ts", (content) => /phone number|registration/i.test(prompt)
-      ? content + "\nexport type RegistrationProfile = { phoneNumber: string };\n"
-      : content + `\nexport type SchemaChange_${digest(prompt).slice(7, 15)} = { appliedAt: string };\n`, modified);
   }
 
   return { files, modifiedFiles: [...modified] };
 }
 
 export class ProjectWorkspaceService {
+  private editLocks=new Set<string>();
+  private editor?:ApplicationGenerationProvider;
+  private compiler?: (files:GeneratedFile[])=>Promise<ValidationCheck>;
+  private validationLocks=new Set<string>();
+  readonly graphify: ProjectGraphify;
   private readonly store: JsonStore;
   private readonly upgradeLocks = new Map<string, Promise<void>>();
 
-  constructor(store: JsonStore) {
+  constructor(store: JsonStore,editor?:ApplicationGenerationProvider) {
     this.store = store;
+    this.editor=editor;
+    this.graphify = new ProjectGraphify(join(dirname(store.filePath),'code-graphs'));
   }
 
   get(projectId: string): ProjectWorkspace {
@@ -251,12 +245,35 @@ export class ProjectWorkspaceService {
       .sort((left, right) => right.versionNumber - left.versionNumber);
     const currentVersion = project.currentVersionId ? database.versions[project.currentVersionId] : undefined;
     const files = currentVersion ? database.versionFiles[currentVersion.id] ?? [] : project.currentBuildId ? database.files[project.currentBuildId] ?? [] : [];
-    return { project, specification, currentVersion, versions, files, database: databaseInfo(specification) };
+    return { project, specification, currentVersion, versions, files, database: databaseInfo(specification),editingMode:this.editor?.edit?'ai':'local-style' };
   }
+  setCompiler(compiler:(files:GeneratedFile[])=>Promise<ValidationCheck>){this.compiler=compiler;}
+  async verifyGenerated(files:GeneratedFile[]):Promise<ValidationCheck|undefined>{return this.compiler?.(files);}
 
   async getReady(projectId: string): Promise<ProjectWorkspace> {
     await this.ensureProfessionalFrontend(projectId);
-    return this.get(projectId);
+    const workspace=this.get(projectId);
+    if(workspace.currentVersion){const {nodesData:_nodes,linksData:_links,...status}=await this.graphify.ensure(projectId,workspace.currentVersion.id,workspace.files);workspace.graphify=status;}
+    return workspace;
+  }
+
+  async validateVersion(projectId:string,versionId:string,compile:(files:GeneratedFile[])=>Promise<ValidationCheck>):Promise<ProjectWorkspace>{
+    if(this.validationLocks.has(projectId))throw new ApiError(409,'VERSION_VALIDATING','Version validation already in progress.');
+    const workspace=this.get(projectId);
+    if(!workspace.currentVersion||workspace.currentVersion.id!==versionId)throw new ApiError(409,'VERSION_CHANGED','The selected version changed. Refresh the workspace.');
+    this.validationLocks.add(projectId);
+    try{
+      const files=structuredClone(workspace.files),sourceHash=versionSourceHash(files);
+      const checks=await sourceValidation(files);
+      if(checks.every(c=>c.status==='passed'))checks.push(await compile(files));
+      await this.store.mutate(database=>{
+        const project=database.projects[projectId],version=database.versions[versionId];
+        if(!project||project.currentVersionId!==versionId||!version||version.projectId!==projectId||versionSourceHash(database.versionFiles[versionId]??[])!==sourceHash)throw new ApiError(409,'VERSION_CHANGED','Version or source changed during validation. No result was applied.');
+        version.validationChecks=checks;version.validationStatus=checks.every(c=>c.status==='passed')?'passed':'failed';version.validationSourceHash=sourceHash;
+        project.status=version.validationStatus==='passed'?'ready':'validation_failed';project.updatedAt=now();
+      });
+      return this.get(projectId);
+    }finally{this.validationLocks.delete(projectId);}
   }
 
   private async ensureProfessionalFrontend(projectId: string): Promise<void> {
@@ -269,6 +286,8 @@ export class ProjectWorkspaceService {
 
   private async performProfessionalFrontendUpgrade(projectId: string): Promise<void> {
     const workspace = this.get(projectId);
+    // An accepted edit is not a legacy template, even when the project started locally.
+    if(workspace.currentVersion?.editPrompt&&workspace.currentVersion.validationSourceHash)return;
     // Reads must never replace a customer-specific AI design with a local template.
     if (workspace.specification?.generator?.mode === "ai" || workspace.specification?.generator?.mode === "gemini"
       || workspace.files.some((file) => (file.path === "frontend/preview.html" || file.path === "frontend/src/App.tsx")
@@ -324,25 +343,29 @@ export class ProjectWorkspaceService {
   }
 
   async edit(projectId: string, promptValue: unknown): Promise<EditResult> {
+    if(this.editLocks.has(projectId)||this.validationLocks.has(projectId))throw new ApiError(409,'EDIT_BUSY','An edit or validation is already running for this project.');
+    this.editLocks.add(projectId);try{return await this.performEdit(projectId,promptValue);}finally{this.editLocks.delete(projectId);}
+  }
+  private async performEdit(projectId:string,promptValue:unknown):Promise<EditResult>{
     const prompt = assertPrompt(promptValue);
     const workspace = await this.getReady(projectId);
     if (!workspace.currentVersion) throw new ApiError(409, "PROJECT_NOT_GENERATED", "Generate the project before applying an edit.");
-    await this.store.mutate((database) => {
-      database.projects[projectId].status = "editing";
-      database.projects[projectId].updatedAt = now();
-    });
-    const candidate = applyScopedEdit(workspace.files, prompt);
+    const originalHash=versionSourceHash(workspace.files),originalVersion=workspace.currentVersion.id;
+    if(this.editor?.edit&&!this.compiler)throw new ApiError(503,'EDIT_VALIDATOR_UNAVAILABLE','The isolated compiler must be available before AI edits can run. No provider request was made.');
+    const context=await this.graphify.context(projectId,workspace.currentVersion.id,workspace.files,prompt);
+    const candidate = this.editor?.edit&&workspace.specification?applyEditPatch(workspace.files,await this.editor.edit(workspace.specification,{prompt,files:workspace.files,context}),workspace.specification.requirements.map(r=>r.id)):applyScopedEdit(workspace.files, prompt);
     if (candidate.modifiedFiles.length === 0) throw new ApiError(422, "NO_SAFE_EDIT", "No safe project files matched this edit request.");
+    if(this.editor?.edit&&/implement|search|filter|checkout|login|signup|endpoint|backend|api|booking|reservation/i.test(prompt)&&!candidate.modifiedFiles.some(path=>/\.(?:tsx?|jsx?|py)$/.test(path)))throw new ApiError(422,'EDIT_BEHAVIOR_REQUIRED','A functionality request cannot be accepted as CSS or preview-only changes. No files were saved.');
     const checks = validateStoredProject(candidate.files);
+    checks.push(...await sourceValidation(candidate.files));
+    if(this.editor?.edit&&candidate.modifiedFiles.some(path=>path.startsWith('frontend/src/'))&&!candidate.modifiedFiles.includes('frontend/preview.html'))throw new ApiError(422,'EDIT_PREVIEW_REQUIRED','AI frontend changes must update the self-contained preview too. No files were saved.');
+    if(checks.every(check=>check.status==='passed')&&this.editor?.edit&&this.compiler)checks.push(await this.compiler(candidate.files));
     if (checks.some((check) => check.status === "failed")) {
-      await this.store.mutate((database) => {
-        database.projects[projectId].status = "validation_failed";
-        database.projects[projectId].updatedAt = now();
-      });
       throw new ApiError(422, "EDIT_VALIDATION_FAILED", "Changes could not be applied. Validation failed and your previous version is safe.");
     }
     await this.store.mutate((database) => {
       const project = database.projects[projectId];
+      if(project.currentVersionId!==originalVersion||versionSourceHash(database.versionFiles[originalVersion]??[])!==originalHash)throw new ApiError(409,'VERSION_CHANGED','The project changed while the AI edit was running. No changes were saved.');
       const existing = Object.values(database.versions).filter((version) => version.projectId === projectId);
       const versionNumber = Math.max(0, ...existing.map((version) => version.versionNumber)) + 1;
       const versionId = id("version");
@@ -356,6 +379,7 @@ export class ProjectWorkspaceService {
         modifiedFiles: candidate.modifiedFiles,
         sourceVersionId: workspace.currentVersion!.id,
         validationStatus: "passed",
+        validationSourceHash:versionSourceHash(candidate.files),
         validationChecks: checks,
         createdAt: now(),
       };
@@ -367,7 +391,8 @@ export class ProjectWorkspaceService {
       project.updatedAt = now();
     });
     return {
-      workspace: this.get(projectId),
+      workspace: await this.getReady(projectId),
+      editContext: {status:context.status,paths:context.paths,characters:context.characters},
       modifiedFiles: candidate.modifiedFiles,
       phases: ["Understanding request", "Identifying affected files", "Updating scoped source", "Validating project", "Refreshing preview"],
     };
@@ -384,21 +409,31 @@ export class ProjectWorkspaceService {
       project.status = "ready";
       project.updatedAt = now();
     });
-    return this.get(projectId);
+    return this.getReady(projectId);
   }
 
   async validateExport(projectId: string): Promise<ExportSummary> {
-    const workspace = await this.getReady(projectId);
+    return (await this.exportSnapshot(projectId)).summary;
+  }
+
+  private async exportSnapshot(projectId:string):Promise<{workspace:ProjectWorkspace;summary:ExportSummary}>{
+    // Export must validate the selected version, not auto-upgrade it into another one.
+    const workspace = structuredClone(this.get(projectId));
     if (!workspace.currentVersion) throw new ApiError(409, "PROJECT_NOT_GENERATED", "Generate the project before exporting it.");
+    const version=workspace.currentVersion,hash=versionSourceHash(workspace.files),validationEvidence=digest(JSON.stringify([version.validationStatus,version.validationSourceHash,version.validationChecks]));
     const checks = validateStoredProject(workspace.files);
+    checks.push({id:id('check'),name:'Selected version validation',status:version.projectId===projectId&&version.validationStatus==='passed'&&version.validationChecks.length>0&&version.validationChecks.every(check=>check.status==='passed')&&(!version.validationSourceHash||version.validationSourceHash===hash)?'passed':'failed',evidence:'The selected version must have passed checks for its unchanged source. Pending, failed or stale versions cannot be exported.'});
     checks.push(await validatePythonSyntax(workspace.files));
+    checks.push(await validatePythonModuleLinks(workspace.files));
     const passed = checks.every((check) => check.status === "passed");
     await this.store.mutate((database) => {
       const project = database.projects[projectId];
+      const latest=database.versions[version.id];
+      if(!project||!latest||project.currentVersionId!==version.id||versionSourceHash(database.versionFiles[version.id]??[])!==hash||digest(JSON.stringify([latest.validationStatus,latest.validationSourceHash,latest.validationChecks]))!==validationEvidence)throw new ApiError(409,'VERSION_CHANGED','Version or validation changed during export checks. Refresh and validate again.');
       project.status = passed ? "ready_to_export" : "validation_failed";
       project.updatedAt = now();
     });
-    return {
+    const summary:ExportSummary={
       projectId,
       projectName: workspace.project.name,
       versionId: workspace.currentVersion.id,
@@ -410,12 +445,12 @@ export class ProjectWorkspaceService {
       fileCount: workspace.files.length,
       checks,
     };
+    return {workspace,summary};
   }
 
   async export(projectId: string): Promise<{ archive: Buffer; filename: string; summary: ExportSummary }> {
-    const summary = await this.validateExport(projectId);
+    const {workspace,summary} = await this.exportSnapshot(projectId);
     if (summary.validation !== "passed") throw new ApiError(422, "EXPORT_VALIDATION_FAILED", "Project validation failed. Fix the issues before exporting.");
-    const workspace = this.get(projectId);
     return { archive: createProjectZip(workspace.files), filename: `${slugify(workspace.project.name)}-v${summary.versionNumber}.zip`, summary };
   }
 }

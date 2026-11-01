@@ -27,6 +27,66 @@ async function waitForBuild(workflow: BuildWorkflow, buildId: string, expected: 
   throw new Error("Build did not reach a terminal state.");
 }
 
+test('unsupported Python backend edit preserves the previous ready project and version',async()=>{
+  const {directory,workflow}=await fixture();
+  try {
+    const created=await workflow.create('Build a client portal with projects and files.');
+    await waitForBuild(workflow,created.id,['awaiting_confirmation']);
+    await workflow.confirm(created.id);
+    const built=await waitForBuild(workflow,created.id,['completed','failed']);
+    assert.equal(built.status,'completed');
+    const before=await workflow.workspace.getReady(created.projectId);
+    await assert.rejects(workflow.workspace.edit(created.projectId,'Add a secure backend API endpoint for client records.'),{code:'EDIT_UNSUPPORTED'});
+    const after=workflow.workspace.get(created.projectId);
+    assert.equal(after.project.status,before.project.status);
+    assert.equal(after.currentVersion?.id,before.currentVersion?.id);
+    assert.deepEqual(after.files,before.files);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('export accepts valid AI preview navigation without requiring a header element',async()=>{
+  const {directory,store,workflow}=await fixture();
+  try {
+    const created=await workflow.create('Build a client portal with projects and files.');
+    await waitForBuild(workflow,created.id,['awaiting_confirmation']);
+    await workflow.confirm(created.id);
+    const built=await waitForBuild(workflow,created.id,['completed','failed']);
+    assert.equal(built.status,'completed');
+    await store.mutate(database=>{
+      const project=database.projects[created.projectId];
+      database.specifications[project.currentSpecificationId!].generator!.mode='ai';
+      const preview=database.versionFiles[project.currentVersionId!].find(file=>file.path==='frontend/preview.html')!;
+      preview.content=preview.content.replace(/<header\b/gi,'<nav').replace(/<\/header>/gi,'</nav>');
+      preview.digest=digest(preview.content);
+    });
+    const summary=await workflow.workspace.validateExport(created.projectId);
+    assert.equal(summary.checks.find(check=>check.name==='Professional preview source')?.status,'passed');
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('explicit retry preserves approval and specification, and rejects unapproved or completed builds',async()=>{
+  const {directory,store,workflow}=await fixture();
+  try{
+    const created=await workflow.create('Build a study planner with subjects and tasks.');
+    const proposal=await waitForBuild(workflow,created.id,['awaiting_confirmation']);
+    await assert.rejects(workflow.retry(created.id),/explicitly approved/);
+    const approvedAt='2026-10-29T00:00:00.000Z';
+    await store.mutate(database=>{
+      database.specifications[proposal.specification!.id].status='approved';
+      database.specifications[proposal.specification!.id].confirmedAt=approvedAt;
+      database.builds[created.id].status='failed';
+      database.builds[created.id].confirmedAt=approvedAt;
+    });
+    await workflow.retry(created.id);
+    const result=await waitForBuild(workflow,created.id,['completed','failed']);
+    assert.equal(result.status,'completed',result.error?.message);
+    assert.equal(result.specification?.id,proposal.specification!.id);
+    assert.equal(result.specification?.confirmedAt,approvedAt);
+    assert.equal(Object.keys(store.read().specifications).length,1);
+    await assert.rejects(workflow.retry(created.id),/explicitly approved/);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
+
 test("a prompt produces architecture first and source only after explicit confirmation", async () => {
   const { directory, workflow } = await fixture();
   try {
@@ -50,6 +110,7 @@ test("a prompt produces architecture first and source only after explicit confir
     assert.ok(build.filePaths.includes("frontend/src/App.tsx"));
     assert.ok(build.filePaths.includes("frontend/preview.html"));
     assert.ok(build.filePaths.includes("backend/app/main.py"));
+    assert.match(workflow.getProject(build.projectId).files.find(file=>file.path==='backend/app/repositories/application_repository.py')!.content,/sqlite3/);
     assert.ok(build.filePaths.includes("shared/api-contract.json"));
     assert.ok(build.validationChecks.every((check) => check.status === "passed"));
     assert.equal(build.project.status, "ready");
@@ -383,7 +444,7 @@ test("project workspace supports real preview, scoped versions, restore, persist
     const currentBeforeFailure = restored.currentVersion?.id;
     await assert.rejects(
       () => workflow.workspace.edit(build.projectId, "Make invalid broken code by removing the closing brace from frontend styles."),
-      { code: "EDIT_VALIDATION_FAILED" },
+      { code: "EDIT_UNSUPPORTED" },
     );
     assert.equal(workflow.workspace.get(build.projectId).currentVersion?.id, currentBeforeFailure);
 

@@ -56,6 +56,7 @@ export type MasterSpecification = {
   version: number;
   status: "proposed" | "approved";
   prompt: string;
+  mcpReferences?:Array<{serverId:string;kind:'stitch'|'supabase';data:string;readAt:string}>;
   designContext?: {
     seed: string;
     recentCompositions: string[];
@@ -71,12 +72,15 @@ export type MasterSpecification = {
   architecture: ArchitecturePlan;
   generator?: {
     mode: "ai" | "gemini" | "deterministic";
-    provider: "gemini-python" | "groq-openrouter" | "openrouter" | "groq" | "google-gemini" | "forgeweb-local";
+    provider: "gemini-python" | "groq-openrouter" | "openrouter" | "groq" | "google-gemini" | "forgeweb-local" | "freellmapi" | "openai";
     model: string;
     message: string;
   };
   createdAt: string;
   confirmedAt?: string;
+  stitchDesign?: { projectId: string; screenId: string; html: string; createdAt: string; source?: "zip" | "api"; pageCount?: number };
+  stitchRequest?: { projectId: string; screenId?: string; generationStarted?: boolean };
+  implementationContext?: {frontendTypes:Record<string,Record<string,{type:string;optional:boolean}>>;applicationSchema?:import('./generation/application-schema.ts').ApplicationSchema};
 };
 
 export type AgentRole = "engineering_planner" | "implementation" | "engineering_reviewer" | "validator";
@@ -121,6 +125,7 @@ export type ProjectVersion = {
   sourceVersionId?: string;
   restoredFromVersionId?: string;
   validationStatus: VersionValidationStatus;
+  validationSourceHash?: string;
   validationChecks: ValidationCheck[];
   createdAt: string;
 };
@@ -203,7 +208,7 @@ export type Project = {
 export type BuildEvent = {
   id: string;
   buildId: string;
-  type: "build.created" | "build.stage.started" | "build.stage.completed" | "build.awaiting_confirmation" | "build.confirmed" | "build.completed" | "build.failed";
+  type: "build.created" | "build.stage.started" | "build.stage.completed" | "build.awaiting_confirmation" | "build.confirmed" | "build.retry.requested" | "build.completed" | "build.failed";
   message: string;
   timestamp: string;
   data?: Record<string, string | number | boolean>;
@@ -249,6 +254,8 @@ export type BuildView = Build & {
 };
 
 export type ProjectWorkspace = {
+  editingMode?:'ai'|'local-style';
+  graphify?: import('./project-graphify.ts').GraphifyStatus;
   project: Project;
   specification?: MasterSpecification;
   currentVersion?: ProjectVersion;

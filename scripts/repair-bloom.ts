@@ -46,9 +46,9 @@ await store.mutate((state) => {
   state.versions[versionId] = { id: versionId, projectId: project.id, buildId: project.currentBuildId!, versionNumber, label: 'Persistent reservation repair', editPrompt: 'Repair SQLite persistence, backend contracts and real reservation submission without changing design.', modifiedFiles: Object.keys(updates), sourceVersionId: project.currentVersionId, validationStatus: 'pending', validationChecks: [syntax], createdAt: now() };
   state.versionFiles[versionId] = files;
   const saved = state.projects[project.id];
-  saved.currentVersionId = versionId; saved.currentVersionNumber = versionNumber; saved.updatedAt = now();
+  saved.currentVersionId = versionId; saved.currentVersionNumber = versionNumber; saved.status='editing'; saved.updatedAt = now();
   state.files[project.currentBuildId!] = files;
   state.builds[project.currentBuildId!].filePaths = files.map((file) => file.path);
 });
 await writeFile('Bloom_Brew_Repaired.zip', createProjectZip(files));
-console.log('Saved repair as a new version; previous version preserved. Export: Bloom_Brew_Repaired.zip');
+console.log('Saved repair as a PENDING version; previous version preserved. In Preview, use Validate this version before starting the runtime. Export: Bloom_Brew_Repaired.zip');

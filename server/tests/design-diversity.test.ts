@@ -163,29 +163,23 @@ test("Gemini-only generation composes frontend and Python backend before full-st
       path: `frontend/src/components/${name}.tsx`, content: `export const ${name} = () => null;`,
       requirementIds: spec.requirements.map((requirement) => requirement.id), digest: "fixture",
     });
-    const backend = Object.fromEntries([
-      ["mainPy", "backend/app/main.py"], ["routesPy", "backend/app/api/routes.py"],
-      ["domainPy", "backend/app/models/domain.py"], ["contractsPy", "backend/app/schemas/contracts.py"],
-      ["servicePy", "backend/app/services/application_service.py"],
-    ].map(([key, path]) => [key, Buffer.from(source.find((file) => file.path === path)!.content).toString("base64")]));
+    const backendPaths = ['backend/app/models/domain.py','backend/app/schemas/contracts.py','backend/app/services/application_service.py','backend/app/api/routes.py','backend/app/main.py'];
     let requests = 0;
     t.mock.method(globalThis, "fetch", async (url: string) => {
       assert.match(url, /generativelanguage\.googleapis\.com/);
       const step = requests++;
-      const payload = step === 0 ? { files: frontend.files.filter((file) => file.path !== "frontend/preview.html") } : step === 1 ? { files: frontend.files.filter((file) => file.path === "frontend/preview.html") } : {
-        ...backend, requirementIds: spec.requirements.map((requirement) => requirement.id),
-      };
+      const payload = step === 0 ? { files: frontend.files.filter((file) => file.path !== "frontend/preview.html") } : step === 1 ? { files: frontend.files.filter((file) => file.path === "frontend/preview.html") } : {files:source.filter((file)=>file.path===backendPaths[step-2])};
       return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }] }), { status: 200 });
     });
     const files = await new GeminiGenerationProvider("test-key").generate(spec);
-    assert.equal(requests, 3);
+    assert.equal(requests, 7);
     assert.ok(files.some((file) => file.path === "backend/app/main.py"));
     assert.ok(files.some((file) => file.path === "frontend/src/App.tsx"));
     assert.ok(files.some((file) => file.path === "shared/api-contract.json"));
     requests = 0;
     const combined = createGenerationProviderFromEnv({ GEMINI_API_KEY: "test-key", GROQ_API_KEY: "test-groq", OPENROUTER_API_KEY: "test-router" })!;
     const combinedFiles = await combined.generate(spec);
-    assert.equal(requests, 3, "Source, preview and backend use Gemini before any fallback");
+    assert.equal(requests, 7, "Source, preview and five plain-source backend files use Gemini before any fallback");
     assert.ok(combinedFiles.some((file) => file.path === "backend/app/main.py"));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

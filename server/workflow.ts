@@ -17,14 +17,21 @@ import type {
   ReviewFinding,
   ValidationCheck,
 } from "./domain.ts";
+import {GENERATED_VITE_VERSION,GENERATED_REACT_PLUGIN_VERSION} from './generation/frontend-toolchain.ts';
 import { ApiError, assertPrompt, delay, digest, id, now, safePath, slugify } from "./lib.ts";
 import { buildGeneratedFrontend, hasGeneratedFrontendMarker } from "./generated-frontend.ts";
 import { detectProductKind, inferDomainEntities, inferProductName } from "./product-intent.ts";
 import { AGENT_POLICY, createTasks, enforceImplementationTask } from "./policy.ts";
 import { ProjectWorkspaceService } from "./project-workspace.ts";
+import {createFrontendSupportFiles} from './providers/generation-provider.ts';
+import {graphifyHash,type GraphifyStatus} from './project-graphify.ts';
 import { applyProviderPlan, type ApplicationGenerationProvider } from "./providers/generation-provider.ts";
 import { JsonStore } from "./store.ts";
+import {persistentRepository} from './generation/persistent-repository.ts';
+import {versionSourceHash} from './version-validation.ts';
 import { repeatedLayout } from "./generation/design-diversity.ts";
+import type { StitchDesigner } from "./providers/stitch-design.ts";
+import { importStitchZip } from "./providers/stitch-zip.ts";
 
 const stageIndexes: Record<Exclude<BuildStatus, "queued" | "awaiting_confirmation" | "failed" | "needs_context">, number> = {
   specifying: 0,
@@ -135,7 +142,7 @@ function createArchitecture(
     "  Browser[React customer app] --> API[Typed backend API]",
     "  API --> Auth[Session and role policy]",
     "  API --> Domain[Domain modules]",
-    "  Domain --> DB[PostgreSQL]",
+    "  Domain --> DB[SQLite]",
     "  API --> Jobs[Background jobs]",
     "  Tests[Acceptance and security checks] --> API",
     "  Git[Git revision] --> Graph[Requirement and code graph]",
@@ -152,7 +159,7 @@ function createArchitecture(
     "",
     "- React and TypeScript customer frontend",
     "- Python FastAPI modular backend with Pydantic HTTP contracts",
-    "- PostgreSQL data model with project-scoped ownership",
+    "- SQLite data model with project-scoped ownership",
     "- Server-side authentication and role authorization",
     "- Background jobs for slow or retryable work",
     "- Git-linked requirement, file, test, and evidence graph",
@@ -204,7 +211,7 @@ function createArchitecture(
       routes,
     },
     data: {
-      database: "PostgreSQL",
+      database: "SQLite",
       entities,
       rules: ["Every mutable record has an owner or project boundary", "Archive before destructive deletion", "Migrations and audit events are versioned"],
     },
@@ -297,7 +304,7 @@ export function generateDeterministicFiles(specification: MasterSpecification): 
     type: "module",
     scripts: { dev: "vite", build: "tsc --noEmit && vite build", test: "node --test" },
     dependencies: { animejs: "^4.5.0", gsap: "^3.15.0", react: "^19.2.0", "react-dom": "^19.2.0" },
-    devDependencies: { "@types/react": "^19.2.0", "@types/react-dom": "^19.2.0", "@vitejs/plugin-react": "^6.0.0", typescript: "^7.0.0", vite: "^8.0.0" },
+    devDependencies: { "@types/react": "^19.2.0", "@types/react-dom": "^19.2.0", "@vitejs/plugin-react": GENERATED_REACT_PLUGIN_VERSION, typescript: "^7.0.0", vite: GENERATED_VITE_VERSION },
   };
   const apiRoutes = (specification.architecture.backend.routes ?? []).map((route) => {
     const match = route.match(/^(GET|POST|PUT|PATCH|DELETE)\s+(\/\S+)/i);
@@ -333,7 +340,7 @@ export function generateDeterministicFiles(specification: MasterSpecification): 
     { path: "backend/app/models/domain.py", requirements: requirementIds, content: `from dataclasses import dataclass\n\n@dataclass(frozen=True)\nclass DomainRecord:\n    id: str\n    entity: str\n` },
     { path: "backend/app/schemas/contracts.py", requirements: requirementIds, content: pythonContracts },
     { path: "backend/app/services/application_service.py", requirements: requirementIds, content: pythonService },
-    { path: "backend/app/repositories/application_repository.py", requirements: requirementIds, content: `class Repository:\n    def __init__(self): self._records = {}\n    def list(self): return list(self._records.values())\n    def get(self, record_id): return self._records.get(record_id)\n    def save(self, record): self._records[record[\"id\"]] = record\n    def delete(self, record_id): self._records.pop(record_id, None)\nrepository = Repository()\n` },
+    { path: "backend/app/repositories/application_repository.py", requirements: requirementIds, content: persistentRepository },
     { path: "backend/app/security/access_control.py", requirements: ["REQ-001", "REQ-002", "REQ-004"], content: `from fastapi import HTTPException\n\ndef require_role(role: str) -> None:\n    if role not in ${JSON.stringify(specification.roles)}: raise HTTPException(403, \"Forbidden\")\n` },
     { path: "backend/tests/test_api.py", requirements: requirementIds, content: specification.productKind === "restaurant" ? 'from fastapi.testclient import TestClient\nfrom app.main import app\n\nclient = TestClient(app)\n\ndef test_health_and_menu():\n    assert client.get("/health").json() == {"status": "ok"}\n    assert client.get("/api/menu").status_code == 200\n\ndef test_reservation_lifecycle():\n    availability = client.get("/api/availability", params={"date": "2030-08-29", "party_size": 2})\n    assert availability.status_code == 200\n    assert availability.json()["slots"]\n    created = client.post("/api/reservations", json={"guest_name": "Test Guest", "email": "guest@example.com", "date": "2030-08-29", "time": "19:00", "party_size": 2})\n    assert created.status_code == 201\n    reservation_id = created.json()["id"]\n    assert client.get(f"/api/reservations/{reservation_id}").status_code == 200\n    assert client.delete(f"/api/reservations/{reservation_id}").status_code == 204\n    assert client.get(f"/api/reservations/{reservation_id}").status_code == 404\n\ndef test_reservation_validation():\n    invalid = client.get("/api/availability", params={"date": "not-a-date", "party_size": 99})\n    assert invalid.status_code == 422\n' : 'from fastapi.testclient import TestClient\nfrom app.main import app\n\ndef test_health():\n    assert TestClient(app).get("/health").json() == {"status": "ok"}\n' },
   ];
@@ -368,7 +375,7 @@ function validate(specification: MasterSpecification, files: GeneratedFile[], fi
     { id: id("check"), name: "Professional preview artifact", status: hasGeneratedFrontendMarker(files.find((file) => file.path === "frontend/preview.html")?.content ?? "") ? "passed" : "failed", evidence: "A stored, sandbox-renderable professional application preview is present." },
     { id: id("check"), name: "Customer backend", status: paths.has("backend/app/main.py") && paths.has("backend/app/schemas/contracts.py") ? "passed" : "failed", evidence: "FastAPI entrypoint and Pydantic API contracts are present." },
     { id: id("check"), name: "Shared API contract", status: paths.has("shared/api-contract.json") ? "passed" : "failed", evidence: "Frontend and backend are linked by a stored route contract." },
-    { id: id("check"), name: "Acceptance tests", status: paths.has("backend/tests/test_api.py") ? "passed" : "failed", evidence: "Generated backend acceptance-test artifact is present." },
+    { id: id("check"), name: "Acceptance test artifact (not execution)", status: paths.has("backend/tests/test_api.py") ? "passed" : "failed", evidence: "Test source is present. This check does not execute tests or establish functional correctness." },
     { id: id("check"), name: "Requirement traceability", status: specification.requirements.every((requirement) => traced.has(requirement.id)) ? "passed" : "failed", evidence: `${traced.size}/${specification.requirements.length} requirement identifiers mapped.` },
     { id: id("check"), name: "Independent review", status: findings.every((finding) => finding.severity !== "error") ? "passed" : "failed", evidence: `${findings.length} review record(s) evaluated.` },
     { id: id("check"), name: "Policy provenance", status: AGENT_POLICY.sourceRevision.length >= 7 && AGENT_POLICY.sourceDigest.startsWith("sha256:") ? "passed" : "failed", evidence: `${AGENT_POLICY.version} at upstream revision ${AGENT_POLICY.sourceRevision}.` },
@@ -410,20 +417,23 @@ function buildGraph(project: Project, build: Build, specification: MasterSpecifi
 }
 
 export class BuildWorkflow {
+  private checkpointGraphs=new Map<string,GraphifyStatus>();
   private running = new Set<string>();
   private readonly store: JsonStore;
   private readonly stageDelayMs: number;
   private readonly generationProvider?: ApplicationGenerationProvider;
+  private readonly stitchDesigner?: StitchDesigner;
   readonly workspace: ProjectWorkspaceService;
 
-  constructor(store: JsonStore, stageDelayMs = 180, generationProvider?: ApplicationGenerationProvider) {
+  constructor(store: JsonStore, stageDelayMs = 180, generationProvider?: ApplicationGenerationProvider, stitchDesigner?: StitchDesigner) {
     this.store = store;
     this.stageDelayMs = stageDelayMs;
     this.generationProvider = generationProvider;
-    this.workspace = new ProjectWorkspaceService(store);
+    this.stitchDesigner = stitchDesigner;
+    this.workspace = new ProjectWorkspaceService(store,generationProvider);
   }
 
-  async create(promptValue: unknown): Promise<BuildView> {
+  async create(promptValue: unknown, mcpReferences:MasterSpecification['mcpReferences']=[]): Promise<BuildView> {
     const prompt = assertPrompt(promptValue);
     const timestamp = now();
     const projectId = id("project");
@@ -458,7 +468,7 @@ export class BuildWorkflow {
       database.builds[build.id] = build;
       database.events[build.id] = [{ id: id("event"), buildId, type: "build.created", message: "Build accepted.", timestamp }];
     });
-    void this.prepare(buildId, prompt);
+    void this.prepare(buildId, prompt,structuredClone(mcpReferences));
     return this.get(buildId);
   }
 
@@ -489,6 +499,8 @@ export class BuildWorkflow {
   listProjects(): Project[] {
     return Object.values(this.store.read().projects).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
+
+  storageInfo(){return this.store.storageInfo();}
 
   async deleteProject(projectId: string): Promise<{ id: string; name: string }> {
     const snapshot = this.store.read();
@@ -524,7 +536,7 @@ export class BuildWorkflow {
       : { mode: "deterministic", provider: "forgeweb-local", model: "forgeweb-templates-v2", configured: false };
   }
 
-  async prepare(buildId: string, prompt?: string): Promise<void> {
+  async prepare(buildId: string, prompt?: string, mcpReferences?:MasterSpecification['mcpReferences']): Promise<void> {
     const runKey = `prepare:${buildId}`;
     if (this.running.has(runKey)) return;
     this.running.add(runKey);
@@ -535,6 +547,8 @@ export class BuildWorkflow {
 
       await this.stage(buildId, "specifying", "Turning the idea into a proposed, versioned master specification.");
       const fallbackSpecification = compileSpecification(initial.projectId, sourcePrompt);
+      const references=mcpReferences??initial.specification?.mcpReferences;
+      if(references?.length)fallbackSpecification.mcpReferences=references;
       fallbackSpecification.designContext = {
         seed: initial.projectId,
         recentCompositions: Object.values(this.store.read().specifications)
@@ -590,6 +604,22 @@ export class BuildWorkflow {
     }
   }
 
+  async importStitchDesignZip(buildId: string, buffer: Buffer): Promise<BuildView> {
+    const current = this.get(buildId);
+    if (current.status !== "awaiting_confirmation" || !current.specification) throw new ApiError(409, "INVALID_BUILD_STATE", "Import a Stitch ZIP while this build is waiting for confirmation.");
+    const design = await importStitchZip(buffer);
+    await this.store.mutate((state) => {
+      const build = state.builds[buildId];
+      if (build.status !== "awaiting_confirmation") throw new ApiError(409, "INVALID_BUILD_STATE", "Build state changed during import. No design was replaced.");
+      state.specifications[build.specificationId!].stitchDesign = design;
+      build.error = undefined;
+      build.stageDetail = `Stitch ZIP imported (${design.pageCount} page(s)). Confirm to generate from this design; no source has been generated.`;
+      build.updatedAt = now();
+      this.pushEvent(state.events[buildId], buildId, "build.awaiting_confirmation", build.stageDetail);
+    });
+    return this.get(buildId);
+  }
+
   async confirm(buildId: string): Promise<BuildView> {
     const current = this.get(buildId);
     if (current.status === "completed") return current;
@@ -604,6 +634,7 @@ export class BuildWorkflow {
       specification.confirmedAt = confirmedAt;
       build.confirmedAt = confirmedAt;
       build.status = "generating";
+      build.error = undefined;
       build.stageDetail = "Requirements confirmed. Starting frontend and backend generation.";
       build.updatedAt = confirmedAt;
       const project = database.projects[build.projectId];
@@ -615,17 +646,66 @@ export class BuildWorkflow {
     return this.get(buildId);
   }
 
+  partialFrontend(buildId:string){
+    const build=this.get(buildId);
+    if(!build.specification)throw new ApiError(409,'SPECIFICATION_REQUIRED','A specification is required.');
+    const files=(this.store.read().files[buildId]??[]).filter(file=>file.path.startsWith('frontend/')||file.path==='package.json');
+    return [...files,...createFrontendSupportFiles(build.specification).filter(file=>!files.some(existing=>existing.path===file.path)).map(file=>({...file,digest:digest(file.content)}))];
+  }
+
+  async checkpoints(buildId:string){
+    const build=this.get(buildId);
+    const files=this.store.read().files[buildId]??[];
+    const hash=graphifyHash(files);let graph=this.checkpointGraphs.get(buildId);
+    if(files.length&&graph?.sourceHash!==hash){
+      graph={status:'warning',message:'Indexing saved source locally; files and Resume remain available.',sourceHash:hash};this.checkpointGraphs.set(buildId,graph);
+      void this.workspace.graphify.ensure(build.projectId,`checkpoint-${buildId}`,files).then(result=>{if(this.checkpointGraphs.get(buildId)?.sourceHash===result.sourceHash)this.checkpointGraphs.set(buildId,result);}).catch(()=>{});
+    }
+    return {files,stage:build.stageDetail,error:build.error,validation:'incomplete' as const,
+      graph:graph?{status:graph.status,message:graph.message,nodes:graph.nodes,edges:graph.edges}:undefined,
+      resume:{savedFiles:files.length,nextStage:files.some(file=>file.path.startsWith('backend/'))?'Resume backend generation and final validation':files.length?'Resume frontend checkpoints, then backend and validation':'Start implementation from approved requirements',estimatedCostUsd:null,notice:'Exact remaining cost is unavailable. Resume may make provider calls; the configured spending guard still applies. Matching cached files are reused; changed dependencies can require regeneration.'}};
+  }
+
+  async retry(buildId:string):Promise<BuildView>{
+    const current=this.get(buildId);
+    if(current.status!=='failed'||current.specification?.status!=='approved'||this.running.has(`execute:${buildId}`))throw new ApiError(409,'INVALID_BUILD_STATE','Only a failed, explicitly approved build can be resumed.');
+    await this.store.mutate(database=>{
+      const build=database.builds[buildId];
+      build.status='generating';
+      build.error=undefined;
+      build.stageDetail='Retry requested. Reusing approved architecture, Stitch design and matching source checkpoints.';
+      build.updatedAt=now();
+      database.projects[build.projectId].status='building';
+      for(const taskId of build.taskIds){
+        const task=database.tasks[taskId];task.status='ready';
+        if(task.role==='implementation')task.allowedPaths=[...new Set([...task.allowedPaths,'postcss.config.cjs','tailwind.config.cjs'])];
+      }
+      this.pushEvent(database.events[buildId],buildId,'build.retry.requested',build.stageDetail);
+    });
+    void this.execute(buildId);
+    return this.get(buildId);
+  }
+
   private async execute(buildId: string): Promise<void> {
     const runKey = `execute:${buildId}`;
     if (this.running.has(runKey)) return;
     this.running.add(runKey);
     try {
       const initial = this.get(buildId);
-      const specification = initial.specification;
+      let specification = initial.specification;
       if (!specification || specification.status !== "approved") {
         throw new ApiError(409, "SPECIFICATION_NOT_CONFIRMED", "Frontend and backend generation requires an approved specification.");
       }
       const database = this.store.read();
+      if (this.stitchDesigner && !specification.stitchDesign) {
+        await this.stage(buildId, "generating", "Designing the approved product in Google Stitch before source generation.");
+        const design = await this.stitchDesigner.design(specification, async (checkpoint) => {
+          await this.store.mutate((state) => { state.specifications[specification!.id].stitchRequest = checkpoint; });
+        });
+        specification = { ...specification, stitchDesign: design };
+        await this.store.mutate((state) => { state.specifications[specification!.id].stitchDesign = design; });
+        await this.stage(buildId, "generating", "Stitch design saved. Starting implementation from the approved requirements and design reference.");
+      }
       const tasks = initial.taskIds.map((taskId) => database.tasks[taskId]).filter((task): task is AgentTask => Boolean(task));
       if (tasks.length === 0) throw new ApiError(500, "TASK_PLAN_INVALID", "Approved task plan is missing.");
 
@@ -636,8 +716,19 @@ export class BuildWorkflow {
       if (this.generationProvider && specification.generator?.mode !== "deterministic") {
         let repaired = false;
         try {
-          files = await this.generationProvider.generate(specification);
+          files = await this.generationProvider.generate(specification, async (detail) => { await this.stage(buildId, "generating", detail); }, async accepted => {
+            const requirements=new Set(specification!.requirements.map(item=>item.id));
+            if(accepted.length>40||new Set(accepted.map(file=>file.path)).size!==accepted.length||accepted.some(file=>safePath(file.path)!==file.path||/(^|\/)(?:\.env|node_modules|\.git|credentials|secrets)(?:[./]|$)/i.test(file.path)||!file.content.trim()||file.content.length>180000||file.digest!==digest(file.content)||!file.requirementIds.length||!file.requirementIds.every(value=>requirements.has(value))))throw new ApiError(422,'CHECKPOINT_INVALID','Rejected unsafe checkpoint. Earlier saved files remain available.');
+            await this.store.mutate(state=>{
+              const build=state.builds[buildId];
+              if(build.status!=='generating'||build.specificationId!==specification!.id)throw new ApiError(409,'CHECKPOINT_STALE','The build changed; this checkpoint was not applied.');
+              const merged=new Map((state.files[buildId]??[]).map(file=>[file.path,file]));
+              for(const file of accepted)merged.set(file.path,file);
+              state.files[buildId]=[...merged.values()];build.filePaths=[...merged.keys()];build.updatedAt=now();
+            }).catch(()=>{throw new ApiError(503,'CHECKPOINT_WRITE_FAILED','Saved progress could not be written. Generation stopped before requesting more files; previous saved source remains available.');});
+          });
         } catch (error) {
+          if(this.generationProvider.id==='openai')throw error;
           if (!(error instanceof ApiError) || error.status !== 422 || !error.code.startsWith("MODEL_")) throw error;
           repaired = true;
           await this.stage(buildId, "generating", `Repairing invalid model output: ${error.message}`);
@@ -685,7 +776,9 @@ export class BuildWorkflow {
         database.files[buildId] = files;
         database.builds[buildId].filePaths = files.map((file) => file.path);
         database.builds[buildId].stageDetail = `${files.length} scoped files generated with complete file digests.`;
-        for (const taskId of database.builds[buildId].taskIds) database.tasks[taskId].status = "completed";
+        for (const taskId of database.builds[buildId].taskIds) {
+          if (["engineering_planner", "implementation"].includes(database.tasks[taskId].role)) database.tasks[taskId].status = "completed";
+        }
       });
       await this.completeStage(buildId);
 
@@ -694,15 +787,23 @@ export class BuildWorkflow {
       if (findings.some((finding) => finding.severity === "error")) throw new ApiError(422, "REVIEW_FAILED", "Independent engineering review found blocking issues.");
       await this.store.mutate((database) => {
         database.builds[buildId].reviewFindings = findings;
+        for (const taskId of database.builds[buildId].taskIds) if (database.tasks[taskId].role === "engineering_reviewer") database.tasks[taskId].status = "completed";
         database.builds[buildId].stageDetail = "Independent engineering review passed without blocking findings.";
       });
       await this.completeStage(buildId);
 
       await this.stage(buildId, "validating", "Validating paths, security boundary, tests, provenance, and requirement coverage.");
       const checks = validate(specification, files, findings);
+      const execution=specification.generator?.mode!=='deterministic'?await this.workspace.verifyGenerated(files):undefined;
+      if(execution)checks.push(execution);
+      if(execution?.status==='failed'){
+        await this.store.mutate(database=>{database.builds[buildId].validationChecks=checks;});
+        throw new ApiError(422,'FULL_STACK_VERIFICATION_FAILED',execution.evidence);
+      }
       if (checks.some((check) => check.status === "failed")) throw new ApiError(422, "VALIDATION_FAILED", "One or more required validation checks failed.");
       await this.store.mutate((database) => {
         database.builds[buildId].validationChecks = checks;
+        for (const taskId of database.builds[buildId].taskIds) if (database.tasks[taskId].role === "validator") database.tasks[taskId].status = "completed";
         database.builds[buildId].stageDetail = `${checks.length} deterministic validation checks passed.`;
       });
       await this.completeStage(buildId);
@@ -714,7 +815,7 @@ export class BuildWorkflow {
         const build = database.builds[buildId];
         build.status = "completed";
         build.currentStageIndex = stageIndexes.completed;
-        build.stageDetail = `Validated — ${checks.length} checks passed and ${graph.nodes.length} graph nodes synchronized.`;
+        build.stageDetail = execution?`Source and isolated execution checks passed; browser workflows still require testing. ${graph.nodes.length} graph nodes synchronized.`:`Source generated; static checks passed. Runtime and browser workflows remain unverified. ${graph.nodes.length} graph nodes synchronized.`;
         build.graphSnapshotId = graph.id;
         build.completedAt = now();
         build.updatedAt = now();
@@ -729,7 +830,8 @@ export class BuildWorkflow {
           label: "Initial generation",
           editPrompt: specification.prompt,
           modifiedFiles: files.map((file) => file.path),
-          validationStatus: "passed",
+          validationStatus: specification.generator?.mode!=='deterministic'&&!execution?"pending":"passed",
+          validationSourceHash: execution?versionSourceHash(files):undefined,
           validationChecks: checks,
           createdAt: now(),
         };
@@ -742,9 +844,14 @@ export class BuildWorkflow {
         project.updatedAt = now();
         this.pushEvent(database.events[buildId], buildId, "build.completed", build.stageDetail, { graphNodes: graph.nodes.length, checks: checks.length });
       });
+      // Index every validated generated version; graph failure must not fail the website.
+      const saved=this.workspace.get(current.project.id);
+      if(saved.currentVersion)await this.workspace.graphify.ensure(saved.project.id,saved.currentVersion.id,saved.files);
     } catch (error) {
       await this.fail(buildId, error);
     } finally {
+      const partial=this.store.read().files[buildId];
+      if(partial?.length&&this.get(buildId).status==='failed'){void this.workspace.graphify.ensure(this.get(buildId).projectId,`checkpoint-${buildId}`,partial).catch(()=>{});}
       this.running.delete(runKey);
     }
   }
@@ -755,11 +862,11 @@ export class BuildWorkflow {
     await this.store.mutate((database) => {
       const build = database.builds[buildId];
       if (!build) return;
-      build.status = "failed";
+      build.status = code.startsWith("STITCH_") ? "awaiting_confirmation" : "failed";
       build.error = { code, message };
       build.stageDetail = message;
       build.updatedAt = now();
-      database.projects[build.projectId].status = "failed";
+      database.projects[build.projectId].status = code.startsWith("STITCH_") ? "awaiting_confirmation" : "failed";
       this.pushEvent(database.events[buildId], buildId, "build.failed", message, { code });
     });
   }

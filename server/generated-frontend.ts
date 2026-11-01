@@ -48,8 +48,8 @@ export function normalizeMasterSpecification(specification: MasterSpecification)
   const pages = ["Secure sign-in", "Role-aware dashboard", ...domainEntities.slice(0, 3).map((entity) => `${entity} workspace`), "Activity and audit history", "Settings and access management"];
   const configuredPages = productKind === "commerce" ? commercePages : pages;
   const diagram = productKind === "commerce"
-    ? "flowchart LR\n  Shopper[Responsive commerce UI] --> API[Secure commerce API]\n  API --> Catalog[Catalog and search]\n  API --> Checkout[Cart and checkout]\n  Checkout --> Payment[Payment provider]\n  API --> Orders[Orders and tracking]\n  Catalog --> DB[(PostgreSQL)]\n  Orders --> DB\n  Admin[Admin dashboard] --> API"
-    : "flowchart LR\n  Browser[React customer app] --> API[Typed backend API]\n  API --> Auth[Session and role policy]\n  API --> Domain[Domain modules]\n  Domain --> DB[PostgreSQL]";
+    ? "flowchart LR\n  Shopper[Responsive commerce UI] --> API[Secure commerce API]\n  API --> Catalog[Catalog and search]\n  API --> Checkout[Cart and checkout]\n  Checkout --> Payment[Payment provider]\n  API --> Orders[Orders and tracking]\n  Catalog --> DB[(SQLite)]\n  Orders --> DB\n  Admin[Admin dashboard] --> API"
+    : "flowchart LR\n  Browser[React customer app] --> API[Typed backend API]\n  API --> Auth[Session and role policy]\n  API --> Domain[Domain modules]\n  Domain --> DB[SQLite]";
   const markdown = [
     `# ${productName} Architecture`,
     "",
@@ -57,7 +57,7 @@ export function normalizeMasterSpecification(specification: MasterSpecification)
     "",
     "- Professional React and TypeScript customer frontend",
     "- Typed Node.js backend with server-side role authorization",
-    "- PostgreSQL data model with project-scoped ownership",
+    "- SQLite data model with project-scoped ownership",
     "- Versioned validation, audit evidence, and project exports",
     "",
     "## Frontend",
@@ -90,7 +90,7 @@ export function normalizeMasterSpecification(specification: MasterSpecification)
       jobs: ["Long-running generation", "Notifications and integrations", "Evidence synchronization"],
     },
     data: {
-      database: "PostgreSQL",
+      database: "SQLite",
       entities,
       rules: ["Every mutable record has an ownership boundary", "Archive before destructive deletion", "Migrations are versioned"],
     },

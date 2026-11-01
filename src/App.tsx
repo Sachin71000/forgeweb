@@ -19,7 +19,7 @@ import {
   Workflow,
   Zap,
 } from "lucide-react";
-import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type FormEvent } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { gsap } from "gsap";
 import BorderGlow from "./components/react-bits/BorderGlow";
@@ -86,6 +86,8 @@ function Hero() {
   const [stage, setStage] = useState(-1);
   const [running, setRunning] = useState(false);
   const [build, setBuild] = useState<BuildResponse | null>(null);
+  const buildArea=useRef<HTMLDivElement>(null);
+  const [buildAreaHeight,setBuildAreaHeight]=useState(240);
   const [projectRefreshToken, setProjectRefreshToken] = useState(0);
   const [statusDetail, setStatusDetail] = useState("Ready — your prompt becomes a versioned specification before code is generated.");
   const activeStage = buildStages[Math.max(stage, 0)];
@@ -96,11 +98,13 @@ function Hero() {
     if (running) return;
 
     setRunning(true);
-    setBuild(null);
+    setBuildAreaHeight(Math.max(240,buildArea.current?.getBoundingClientRect().height??0));
     setStage(-1);
     setStatusDetail("Master spec — submitting the idea to the private build workspace…");
+    window.requestAnimationFrame(()=>buildArea.current?.scrollIntoView({behavior:'smooth',block:'start'}));
     try {
       const created = await createBuild(prompt);
+      setBuild(created);
       const completed = await waitForBuild(created.id, (build) => {
         setBuild(build);
         setStage(visibleBuildStage(build));
@@ -143,6 +147,11 @@ function Hero() {
       }
       setBuild(completed);
       setProjectRefreshToken((value) => value + 1);
+      if (completed.status === "awaiting_confirmation") {
+        setStage(1);
+        setStatusDetail(completed.error?.message ?? completed.stageDetail);
+        return;
+      }
       setStage(3);
       setStatusDetail(completed.stageDetail);
     } catch (error) {
@@ -150,6 +159,17 @@ function Hero() {
     } finally {
       setRunning(false);
     }
+  };
+
+  const updateResumedBuild = async (updated:BuildResponse) => {
+    setBuild(updated);setStatusDetail(updated.stageDetail);
+    if(updated.status!=='generating')return;
+    setRunning(true);
+    try{
+      await waitForBuild(updated.id,progress=>{setBuild(progress);setStage(visibleBuildStage(progress));setStatusDetail(visibleBuildDetail(progress));});
+      setProjectRefreshToken(value=>value+1);
+    }catch(error){setStatusDetail(error instanceof Error?error.message:'Could not monitor resumed build. Saved progress is retained.');}
+    finally{setRunning(false);}
   };
 
   const openSavedProject = (savedBuild: BuildResponse) => {
@@ -278,7 +298,10 @@ function Hero() {
             <span className="flex items-center gap-1.5"><GitBranch className="size-3.5" /> Git-native history</span>
             <span className="flex items-center gap-1.5"><KeyRound className="size-3.5" /> Managed or BYOK</span>
           </div>
-          <BuildProposal build={build} busy={running} onConfirm={confirmProposal} onEditPrompt={editPromptFromProposal} onProjectUpdated={() => setProjectRefreshToken((value) => value + 1)} />
+          <div ref={buildArea} data-testid="build-workspace" style={{scrollMarginTop:24,minHeight:running?buildAreaHeight:undefined}} aria-busy={running}>
+            {(running || build) && <div role="status" className="hero-build-status"><span>{statusDetail}</span></div>}
+            <BuildProposal build={build} busy={running} onConfirm={confirmProposal} onEditPrompt={editPromptFromProposal} onBuildUpdated={(updated) => { void updateResumedBuild(updated); }} onProjectUpdated={() => setProjectRefreshToken((value) => value + 1)} />
+          </div>
         </div>
       </div>
       <div className="hero-scroll-cue"><span>SCROLL TO TRACE THE SYSTEM</span><i /></div>
@@ -368,71 +391,9 @@ function SystemSection() {
 
 function GraphCanvas() {
   const root = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (!root.current) return;
-
-    const context = gsap.context(() => {
-      const media = gsap.matchMedia();
-      media.add("(prefers-reduced-motion: no-preference)", () => {
-        const timeline = gsap.timeline({ repeat: -1, repeatDelay: 1.2 });
-        timeline
-          .fromTo(".graph-edge", { strokeDashoffset: 90, opacity: 0.15 }, { strokeDashoffset: 0, opacity: 0.7, duration: 0.8, stagger: 0.08, ease: "power2.out" })
-          .fromTo(".graph-node", { scale: 0.72, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.35, stagger: 0.06, transformOrigin: "center", ease: "back.out(1.4)" }, "-=0.5")
-          .to(".graph-pulse", { scale: 1.55, opacity: 0, duration: 0.9, stagger: 0.18, transformOrigin: "center", ease: "power2.out" }, "+=0.35");
-        return () => timeline.kill();
-      });
-      return () => media.revert();
-    }, root);
-
-    return () => context.revert();
-  }, []);
-
-  return (
-    <div ref={root} className="relative min-h-[430px] overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.025]">
-      <div className="graph-grid absolute inset-0" />
-      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 760 470" role="img" aria-label="Requirement to code and validation relationship graph">
-        <g fill="none" stroke="#dfff68" strokeWidth="1.4" strokeDasharray="7 7">
-          <path className="graph-edge" d="M147 234C226 234 228 114 318 114" />
-          <path className="graph-edge" d="M147 234C236 234 230 234 318 234" />
-          <path className="graph-edge" d="M147 234C226 234 228 354 318 354" />
-          <path className="graph-edge" d="M358 114C443 114 448 179 525 179" />
-          <path className="graph-edge" d="M358 234C442 234 445 234 525 234" />
-          <path className="graph-edge" d="M358 354C445 354 448 289 525 289" />
-          <path className="graph-edge" d="M565 179C632 179 625 234 678 234" />
-          <path className="graph-edge" d="M565 234H678" />
-          <path className="graph-edge" d="M565 289C632 289 625 234 678 234" />
-        </g>
-
-        {[
-          { cx: 125, cy: 234, fill: "#dfff68", radius: 22 },
-          { cx: 338, cy: 114, fill: "#f4f5ef", radius: 17 },
-          { cx: 338, cy: 234, fill: "#f4f5ef", radius: 17 },
-          { cx: 338, cy: 354, fill: "#f4f5ef", radius: 17 },
-          { cx: 545, cy: 179, fill: "#dfff68", radius: 15 },
-          { cx: 545, cy: 234, fill: "#dfff68", radius: 15 },
-          { cx: 545, cy: 289, fill: "#dfff68", radius: 15 },
-          { cx: 700, cy: 234, fill: "#f4f5ef", radius: 22 },
-        ].map(({ cx, cy, fill, radius }, index) => (
-          <g key={index}>
-            {(index === 0 || index === 7) && <circle className="graph-pulse" cx={cx} cy={cy} r={radius + 8} fill="none" stroke="#dfff68" strokeWidth="1" />}
-            <circle className="graph-node" cx={cx} cy={cy} r={radius} fill={fill} />
-          </g>
-        ))}
-      </svg>
-      <div className="absolute left-[5%] top-[43%] rounded-lg bg-ink/90 px-3 py-2 text-xs text-white shadow-lg">
-        <span className="font-mono text-[9px] text-acid">REQ-014</span>
-        <p className="mt-0.5 font-medium">Client file access</p>
-      </div>
-      <div className="absolute left-[38%] top-[12%] hidden rounded-lg border border-white/10 bg-[#1c211f] px-3 py-2 text-xs text-white sm:block">route.ts</div>
-      <div className="absolute left-[38%] top-[42%] hidden rounded-lg border border-white/10 bg-[#1c211f] px-3 py-2 text-xs text-white sm:block">file-policy.ts</div>
-      <div className="absolute left-[38%] bottom-[14%] hidden rounded-lg border border-white/10 bg-[#1c211f] px-3 py-2 text-xs text-white sm:block">file-access.spec.ts</div>
-      <div className="absolute right-[2%] top-[42%] rounded-lg bg-white px-3 py-2 text-xs text-ink shadow-lg">
-        <span className="font-mono text-[9px] text-muted">COMMIT</span>
-        <p className="mt-0.5 font-semibold">4f2a91c</p>
-      </div>
-    </div>
-  );
+  const [GraphView,setGraphView]=useState<ComponentType|null>(null),[error,setError]=useState('');
+  useEffect(()=>{let active=true;const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){observer.disconnect();void import('./components/ForgeWebGraph').then(module=>{if(active)setGraphView(()=>module.default);}).catch(()=>{if(active)setError('The 3D viewer could not load. Refresh this page to retry; the rest of ForgeWeb is still available.');});}},{rootMargin:'300px'});if(root.current)observer.observe(root.current);return()=>{active=false;observer.disconnect();};},[]);
+  return <div ref={root} className="code-graph-mount">{GraphView?<GraphView/>:error?<p role="alert">{error}</p>:<p role="status">ForgeWeb’s local code graph · loading when in view…</p>}</div>;
 }
 
 function GraphSection() {
@@ -441,16 +402,16 @@ function GraphSection() {
       <div className="mx-auto max-w-[1370px] overflow-hidden rounded-[2rem] border border-white/[0.08] bg-[#101412] px-5 py-16 text-white sm:px-10 sm:py-20 lg:px-16">
         <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-center">
           <div>
-            <p className="eyebrow !border-white/10 !bg-white/5 !text-acid"><Network className="size-3.5" /> Code review graph</p>
+            <p className="eyebrow !border-white/10 !bg-white/5 !text-acid"><Network className="size-3.5" /> ForgeWeb’s real code graph</p>
             <h2 className="mt-6 text-balance text-4xl font-semibold leading-tight sm:text-6xl">See why every line exists.</h2>
             <p className="mt-6 max-w-md text-pretty text-sm leading-7 text-white/55 sm:text-base">
-              ForgeWeb joins structural code intelligence with product intent. Trace a requirement to its route, policy, database entity, tests, security controls, and accepted commit.
+              Explore ForgeWeb itself in three dimensions. This local Graphify snapshot maps the actual source symbols, dependencies and relationships behind the platform—not an illustrative demo.
             </p>
             <ul className="mt-8 space-y-3 text-sm text-white/72">
               {[
-                "Preview impact before accepting a change",
-                "Separate parser facts from AI inference",
-                "Keep every graph snapshot tied to Git",
+                "Rotate, search and inspect the real source graph",
+                "Distinguish extracted facts from inferred relationships",
+                "Source metadata only—no keys or customer records",
               ].map((item) => (
                 <li className="flex items-center gap-3" key={item}>
                   <span className="grid size-5 place-items-center rounded-full bg-acid text-ink"><Check className="size-3" strokeWidth={3} /></span>

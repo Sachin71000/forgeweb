@@ -37,6 +37,10 @@ test("HTTP boundaries expose proposal, confirmation, and completed build phases"
     assert.equal((await fetch(`${baseUrl}/api/not-a-route`)).status, 404);
     assert.equal(healthResponse.headers.get("x-content-type-options"), "nosniff");
     assert.equal(healthResponse.headers.get("cache-control"), "no-store");
+    assert.equal((await fetch(`${baseUrl}/api/builds`,{method:'POST',headers:{origin:'null','content-type':'application/json'},body:JSON.stringify({prompt:'Build a task manager'})})).status,403);
+    assert.equal((await fetch(`${baseUrl}/api/builds/missing/checkpoints`,{headers:{origin:'null'}})).status,403);
+    assert.equal((await fetch(`${baseUrl}/api/builds/missing/partial-preview/hash/assets/app.js`,{headers:{origin:'null'}})).status,404,'Opaque frames reach only compiled static asset routes, not control APIs');
+    assert.equal((await fetch(`${baseUrl}/api/builds/missing/partial-preview/hash/assets/app.js`,{headers:{origin:'https://untrusted.example'}})).status,403);
 
     const invalidResponse = await fetch(`${baseUrl}/api/builds`, {
       method: "POST",

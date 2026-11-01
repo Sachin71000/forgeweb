@@ -1,7 +1,10 @@
 import { ArrowRight, Boxes, Check, Code2, Cpu, Database, ExternalLink, FileCode2, PencilLine, Server, ShieldCheck } from "lucide-react";
 import { motion } from "motion/react";
+import { useRef, useState } from "react";
+import { uploadStitchZip } from "../lib/forgeweb-api";
 import type { BuildResponse } from "../lib/forgeweb-api";
 import ProjectWorkspace from "./ProjectWorkspace";
+import BuildCheckpoints from './BuildCheckpoints';
 
 type BuildProposalProps = {
   build: BuildResponse | null;
@@ -9,11 +12,23 @@ type BuildProposalProps = {
   onConfirm: () => void;
   onEditPrompt: () => void;
   onProjectUpdated?: () => void;
+  onBuildUpdated?: (build: BuildResponse) => void;
 };
 
-export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, onProjectUpdated }: BuildProposalProps) {
+export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, onProjectUpdated, onBuildUpdated }: BuildProposalProps) {
+  const uploadInput = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const importZip = async (file: File) => {
+    if (!build || busy || importing) return;
+    setImporting(true);
+    setImportError("");
+    try { onBuildUpdated?.(await uploadStitchZip(build.id, file)); }
+    catch (error) { setImportError(error instanceof Error ? error.message : "ZIP import failed."); }
+    finally { setImporting(false); if (uploadInput.current) uploadInput.current.value = ""; }
+  };
   const specification = build?.specification;
-  if (!build || !specification || build.status === "queued" || build.status === "specifying" || build.status === "planning") return null;
+  if (!build || !specification) return null;
 
   const architecture = specification.architecture;
   const awaiting = build.status === "awaiting_confirmation";
@@ -34,7 +49,7 @@ export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, on
     >
       <div className="build-proposal-heading">
         <div>
-          <p className="build-proposal-kicker"><span /> {awaiting ? "Approval required" : complete ? "Verified build" : "Generation in progress"}</p>
+          <p className="build-proposal-kicker"><span /> {build.status==='failed' ? 'Build stopped' : awaiting ? "Approval required" : complete ? "Source generated" : "Generation in progress"}</p>
           <h2>{specification.productName}</h2>
           <p className="build-proposal-summary">{specification.summary}</p>
           {specification.generator && <p className={`build-generator-source is-${specification.generator.mode}`}><Cpu /> {generatorLabel}<span>{specification.generator.message}</span></p>}
@@ -91,17 +106,22 @@ export default function BuildProposal({ build, busy, onConfirm, onEditPrompt, on
         <div className="build-confirmation-gate">
           <div><strong>Ready for your decision</strong><p>Confirming freezes this specification, then starts frontend and backend generation.</p></div>
           <div className="build-confirmation-actions">
-            <button type="button" className="button workspace-button" onClick={onEditPrompt} disabled={busy}><PencilLine /> Edit prompt</button>
-            <button type="button" className="button button-acid" onClick={onConfirm} disabled={busy}>{busy ? "Starting build…" : "Confirm requirements & generate"}<ArrowRight /></button>
+            <input ref={uploadInput} type="file" accept=".zip,application/zip" hidden aria-label="Stitch design ZIP" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importZip(file); }} />
+            <button type="button" className="button workspace-button" onClick={() => uploadInput.current?.click()} disabled={busy || importing}>{importing ? "Importing…" : "Import Stitch ZIP"}</button>
+            <button type="button" className="button workspace-button" onClick={onEditPrompt} disabled={busy || importing}><PencilLine /> Edit prompt</button>
+            <button type="button" className="button button-acid" onClick={onConfirm} disabled={busy || importing}>{busy ? "Starting build…" : build.error?.code.startsWith("STITCH_") ? "Retry Stitch & generate" : "Confirm requirements & generate"}<ArrowRight /></button>
           </div>
+          {importError && <p role="alert">{importError}</p>}
+          {!importError && build.stageDetail.startsWith("Stitch ZIP imported") && <p role="status">{build.stageDetail}</p>}
         </div>
       )}
 
+      {!complete && specification.status==='approved' && (build.filePaths.length>0||build.status==='failed') && <BuildCheckpoints build={build} onUpdated={onBuildUpdated} />}
       {complete && build.filePaths.length > 0 && (
         <div className="generated-artifacts">
           <div className="build-proposal-title"><Code2 /> Generated frontend + backend <span>{build.filePaths.length} files</span></div>
           <ProjectWorkspace projectId={build.projectId} initialFilePaths={build.filePaths} validationCount={build.validationChecks.length} onProjectUpdated={onProjectUpdated} />
-          {complete && <p><Check /> {build.validationChecks.length} validation checks passed. Requirement graph synchronized.</p>}
+          {complete && <p><Check /> {build.validationChecks.length} recorded checks passed. See version validation for executed tests; browser workflows require separate verification.</p>}
         </div>
       )}
     </motion.section>

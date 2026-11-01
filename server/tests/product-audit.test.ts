@@ -61,7 +61,7 @@ test("product release acceptance audit (isolated data, no paid providers)", asyn
       assert.ok([403, 415].includes(response.status), `Expected rejection, received HTTP ${response.status}`);
     });
     await t.test("foreign origin cannot confirm, delete, restore, edit or export projects", async () => {
-      for (const [method, path] of [["POST", "/api/builds/missing/confirm"], ["DELETE", "/api/projects/missing"], ["POST", "/api/projects/missing/versions/missing/restore"], ["POST", "/api/projects/missing/edits"], ["POST", "/api/projects/missing/export"]]) {
+      for (const [method, path] of [["POST", "/api/builds/missing/confirm"], ["POST", "/api/builds/missing/retry"], ["DELETE", "/api/projects/missing"], ["POST", "/api/projects/missing/versions/missing/restore"], ["POST", "/api/projects/missing/edits"], ["POST", "/api/projects/missing/export"]]) {
         const response = await fetch(`${base}${path}`, { method, headers: { origin: "https://untrusted.example" } });
         assert.equal(response.status, 403);
         assert.doesNotMatch(await response.text(), /TypeError|at .*\.ts:/);

@@ -6,6 +6,21 @@ import type { MasterSpecification } from "../domain.ts";
 
 const specification = { projectId: "test", prompt: "Build a cafe", requirements: [], roles: [], entities: [], productKind: "restaurant" } as unknown as MasterSpecification;
 
+for (const output of ['null','[]','42']) {
+  test(`compatible provider rejects non-object structured output: ${output}`, async (t) => {
+    t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({choices:[{message:{content:output}}]})));
+    const provider=createGenerationProviderFromEnv({FORGEWEB_GENERATION_MODE:'groq',GROQ_API_KEY:'test'})!;
+    await assert.rejects(provider.plan('Build a cafe',specification),/invalid structured output/);
+  });
+}
+for (const name of ['gemini','groq']) {
+  test(`${name} rejects a null HTTP envelope as data failure, not network failure`,async(t)=>{
+    t.mock.method(globalThis,'fetch',async()=>new Response('null'));
+    const provider=name==='gemini'?new GeminiGenerationProvider('test'):createGenerationProviderFromEnv({FORGEWEB_GENERATION_MODE:'groq',GROQ_API_KEY:'test'})!;
+    await assert.rejects(provider.plan('Build a cafe',specification),/invalid JSON response envelope/);
+  });
+}
+
 for (const failure of ["malformed", "truncated", "null"]) {
   test(`Gemini repairs ${failure} output once with a larger bounded budget`, async (t) => {
     const budgets: number[] = [];

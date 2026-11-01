@@ -3,6 +3,10 @@ import { createServer, type Server } from "node:http";
 import { URL } from "node:url";
 import { ApiError } from "./lib.ts";
 import { BuildWorkflow } from "./workflow.ts";
+import { MAX_STITCH_ZIP } from "./providers/stitch-zip.ts";
+import { McpConnections } from './mcp-connections.ts';
+import {ProjectRuntime} from './project-runtime.ts';
+import {resolve} from 'node:path';
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -90,7 +94,7 @@ async function body(request: IncomingMessage): Promise<unknown> {
   return parsed;
 }
 
-function checkRequestOrigin(request: IncomingMessage): void {
+function checkRequestOrigin(request: IncomingMessage, opaquePreviewAsset=false): void {
   const host = request.headers.host;
   if (!host) throw new ApiError(400, "INVALID_HOST", "Host header is required.");
   let target: URL;
@@ -102,7 +106,7 @@ function checkRequestOrigin(request: IncomingMessage): void {
     throw new ApiError(403, "UNTRUSTED_HOST", "This local server only accepts loopback hosts.");
   }
   const origin = request.headers.origin;
-  if (origin && origin !== target.origin) throw new ApiError(403, "CROSS_ORIGIN_REQUEST", "Cross-origin API requests are not allowed.");
+  if (origin && origin !== target.origin && !(origin==='null'&&opaquePreviewAsset&&request.method==='GET')) throw new ApiError(403, "CROSS_ORIGIN_REQUEST", "Cross-origin API requests are not allowed.");
   if (!["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && request.headers["sec-fetch-site"] === "cross-site") {
     throw new ApiError(403, "CROSS_ORIGIN_REQUEST", "Cross-site changes are not allowed.");
   }
@@ -110,14 +114,45 @@ function checkRequestOrigin(request: IncomingMessage): void {
 
 export type ForgeWebRequestHandler = (request: IncomingMessage, response: ServerResponse) => Promise<void>;
 
-export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebRequestHandler {
+export function createForgeWebRequestHandler(workflow: BuildWorkflow, mcp = new McpConnections(), runtime = new ProjectRuntime(workflow.workspace,resolve(process.env.FORGEWEB_DATA_DIR??'.forgeweb-data'))): ForgeWebRequestHandler {
   return async (request, response) => {
     const method = request.method ?? "GET";
     try {
-      checkRequestOrigin(request);
+      // Opaque sandbox frames may read only compiled static assets, never control-plane APIs.
+      checkRequestOrigin(request, /^\/api\/builds\/[\w-]+\/partial-preview\/[^/]+\/assets\/[A-Za-z0-9_.-]+\.(js|css|woff2?|png|jpe?g|webp|svg)$/.test((request.url??'').split('?')[0]));
       const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
       try { decodeURIComponent(requestUrl.pathname); }
       catch { throw new ApiError(400, "INVALID_URL_ENCODING", "Request path contains invalid URL encoding."); }
+      if(method==='GET'&&requestUrl.pathname==='/api/storage'){send(response,200,{storage:workflow.storageInfo()});return;}
+      const validateRuntimeMatch=requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/runtime\/validate$/);
+      if(method==='POST'&&validateRuntimeMatch){const payload=await body(request) as {versionId?:unknown};if(typeof payload.versionId!=='string'||!payload.versionId)throw new ApiError(400,'VERSION_REQUIRED','Select a project version before validation.');send(response,200,{workspace:await runtime.validate(decodeURIComponent(validateRuntimeMatch[1]),payload.versionId)});return;}
+      const runtimeMatch=requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/(runtime|storage)$/);
+      if(runtimeMatch){
+        const projectId=decodeURIComponent(runtimeMatch[1]);
+        if(runtimeMatch[2]==='storage'&&method==='GET'){send(response,200,{storage:await runtime.storage(projectId,requestUrl.searchParams.get('collection')??'',Number(requestUrl.searchParams.get('offset')??0))});return;}
+        if(runtimeMatch[2]==='runtime'){
+          if(method==='GET'){send(response,200,{runtime:await runtime.status(projectId)});return;}
+          if(method==='POST'){const payload=await body(request) as {versionId?:unknown};if(typeof payload.versionId!=='string'||!payload.versionId)throw new ApiError(400,'VERSION_REQUIRED','Select a project version before starting.');send(response,200,{runtime:await runtime.start(projectId,payload.versionId)});return;}
+          if(method==='DELETE'){send(response,200,{runtime:await runtime.stop(projectId)});return;}
+        }
+      }
+      if(method==='GET'&&requestUrl.pathname==='/api/mcp'){
+        send(response,200,{servers:mcp.list(),mode:'reference-read-only'});return;
+      }
+      const mcpReadMatch=requestUrl.pathname.match(/^\/api\/mcp\/([a-z0-9-]{1,48})\/(read|select)$/);
+      if(method==='POST'&&mcpReadMatch){
+        const payload=await body(request);
+        if(mcpReadMatch[2]==='read')send(response,200,{server:await mcp.read(mcpReadMatch[1],payload)});
+        else {mcp.select(mcpReadMatch[1],(payload as {enabled?:unknown}).enabled);send(response,200,{servers:mcp.list()});}
+        return;
+      }
+      const mcpMatch=requestUrl.pathname.match(/^\/api\/mcp\/([a-z0-9-]{1,48})(\/connect)?$/);
+      if(method==='POST'&&mcpMatch?.[2]){
+        send(response,200,{server:await mcp.connect(mcpMatch[1])});return;
+      }
+      if(method==='DELETE'&&mcpMatch&&!mcpMatch[2]){
+        mcp.disconnect(mcpMatch[1]);send(response,200,{disconnected:true});return;
+      }
       if (method === "GET" && requestUrl.pathname === "/api/health") {
         send(response, 200, { status: "ok", service: "forgeweb-control-plane", generation: workflow.generationStatus(), time: new Date().toISOString() });
         return;
@@ -128,7 +163,7 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
       }
       if (method === "POST" && requestUrl.pathname === "/api/builds") {
         const payload = await body(request) as { prompt?: unknown };
-        const build = await workflow.create(payload.prompt);
+        const build = await workflow.create(payload.prompt,mcp.selectedReferences());
         send(response, 202, { build });
         return;
       }
@@ -137,10 +172,46 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
         streamBuildEvents(request, response, workflow, decodeURIComponent(buildEventsMatch[1]));
         return;
       }
+      const stitchZipMatch = requestUrl.pathname.match(/^\/api\/builds\/([^/]+)\/stitch-zip$/);
+      if (method === "POST" && stitchZipMatch) {
+        if (request.headers['content-type']?.split(';')[0].trim() !== 'application/zip') throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Upload the Stitch export as application/zip.");
+        workflow.get(decodeURIComponent(stitchZipMatch[1]));
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of request) {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          size += buffer.length;
+          if (size > MAX_STITCH_ZIP) throw new ApiError(413, "BODY_TOO_LARGE", "Stitch ZIP exceeds 8 MiB.");
+          chunks.push(buffer);
+        }
+        send(response, 200, { build: await workflow.importStitchDesignZip(decodeURIComponent(stitchZipMatch[1]), Buffer.concat(chunks)) });
+        return;
+      }
       const buildConfirmationMatch = requestUrl.pathname.match(/^\/api\/builds\/([^/]+)\/confirm$/);
       if (method === "POST" && buildConfirmationMatch) {
         const build = await workflow.confirm(decodeURIComponent(buildConfirmationMatch[1]));
         send(response, 202, { build });
+        return;
+      }
+      const retryMatch=requestUrl.pathname.match(/^\/api\/builds\/([^/]+)\/retry$/);
+      const partialMatch=requestUrl.pathname.match(/^\/api\/builds\/([^/]+)\/partial-preview(?:\/([^/]+)\/(.+))?$/);
+      if(partialMatch){
+        const buildId=decodeURIComponent(partialMatch[1]);workflow.get(buildId);
+        if(method==='POST'&&!partialMatch[2]){send(response,200,await runtime.compilePartial(buildId,workflow.partialFrontend(buildId)));return;}
+        if(method==='GET'&&partialMatch[2]&&partialMatch[3]){
+          const path=decodeURIComponent(partialMatch[3]),content=await runtime.partialAsset(buildId,decodeURIComponent(partialMatch[2]),path);
+          const extension=path.split('.').at(-1)??'';
+          const mime:Record<string,string>={html:'text/html',js:'text/javascript',css:'text/css',svg:'image/svg+xml',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',webp:'image/webp',woff:'font/woff',woff2:'font/woff2'};
+          response.writeHead(200,{'content-type':mime[extension]??'application/octet-stream','cache-control':'no-store','x-content-type-options':'nosniff','access-control-allow-origin':'*','content-security-policy':"sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: https:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"});response.end(content);return;
+        }
+      }
+      const checkpointMatch=requestUrl.pathname.match(/^\/api\/builds\/([^/]+)\/checkpoints$/);
+      if(method==='GET'&&checkpointMatch){
+        send(response,200,await workflow.checkpoints(decodeURIComponent(checkpointMatch[1])));
+        return;
+      }
+      if(method==='POST'&&retryMatch){
+        send(response,202,{build:await workflow.retry(decodeURIComponent(retryMatch[1]))});
         return;
       }
       const workspaceMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)\/workspace$/);
@@ -186,6 +257,7 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
       }
       const projectMatch = requestUrl.pathname.match(/^\/api\/projects\/([^/]+)$/);
       if (method === "DELETE" && projectMatch) {
+        await runtime.stop(decodeURIComponent(projectMatch[1]));
         const deleted = await workflow.deleteProject(decodeURIComponent(projectMatch[1]));
         send(response, 200, { deleted });
         return;
@@ -206,8 +278,8 @@ export function createForgeWebRequestHandler(workflow: BuildWorkflow): ForgeWebR
   };
 }
 
-export function createForgeWebServer(workflow: BuildWorkflow): Server {
-  const handler = createForgeWebRequestHandler(workflow);
+export function createForgeWebServer(workflow: BuildWorkflow, mcp?: McpConnections,runtime?:ProjectRuntime): Server {
+  const handler = createForgeWebRequestHandler(workflow,mcp,runtime);
   return createServer((request, response) => {
     void handler(request, response);
   });

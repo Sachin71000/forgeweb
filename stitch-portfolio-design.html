@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+
+<html class="scroll-smooth" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Avery Stone — Independent Digital Designer</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&amp;family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-lowest": "#ffffff",
+            "inverse-on-surface": "#f3f1eb",
+            "on-secondary-fixed": "#032016",
+            "on-primary-fixed-variant": "#384b3f",
+            "error": "#ba1a1a",
+            "secondary-fixed": "#caeada",
+            "primary-fixed-dim": "#b6ccbd",
+            "surface-dim": "#dcdad4",
+            "inverse-surface": "#30312d",
+            "on-surface-variant": "#434844",
+            "surface-variant": "#e4e2dd",
+            "on-surface": "#1b1c18",
+            "on-secondary": "#ffffff",
+            "outline-variant": "#c3c8c2",
+            "primary-container": "#16281e",
+            "tertiary": "#02120b",
+            "surface": "#fbf9f3",
+            "inverse-primary": "#b6ccbd",
+            "on-primary-fixed": "#0d1f16",
+            "surface-container-highest": "#e4e2dd",
+            "on-primary": "#ffffff",
+            "surface-tint": "#4f6357",
+            "tertiary-container": "#15281f",
+            "secondary": "#486458",
+            "on-tertiary-fixed-variant": "#384b41",
+            "tertiary-fixed-dim": "#b6ccbf",
+            "surface-container-low": "#f5f3ed",
+            "surface-bright": "#fbf9f3",
+            "secondary-container": "#c7e7d7",
+            "on-tertiary-container": "#7b9084",
+            "error-container": "#ffdad6",
+            "on-tertiary-fixed": "#0c1f17",
+            "on-primary-container": "#7c9083",
+            "outline": "#737873",
+            "surface-container-high": "#eae8e2",
+            "background": "#fbf9f3",
+            "on-secondary-fixed-variant": "#304c41",
+            "on-error": "#ffffff",
+            "secondary-fixed-dim": "#aecebe",
+            "surface-container": "#f0eee8",
+            "on-secondary-container": "#4c695c",
+            "primary-fixed": "#d2e8d8",
+            "primary": "#02120a",
+            "on-background": "#1b1c18",
+            "tertiary-fixed": "#d2e8da",
+            "on-tertiary": "#ffffff",
+            "on-error-container": "#93000a"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-xs": "0.25rem",
+            "space-sm": "0.5rem",
+            "space-md": "1rem",
+            "space-lg": "1.75rem",
+            "space-xl": "3rem",
+            "gutter-mobile": "1rem",
+            "gutter": "2rem",
+            "margin-mobile": "1.25rem",
+            "margin": "4rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Newsreader", "serif"],
+            "headline-lg-mobile": ["Newsreader", "serif"],
+            "label-md": ["Hanken Grotesk", "sans-serif"],
+            "body-md": ["Hanken Grotesk", "sans-serif"],
+            "body-lg": ["Hanken Grotesk", "sans-serif"],
+            "label-sm": ["Hanken Grotesk", "sans-serif"],
+            "display-xl": ["Newsreader", "serif"],
+            "headline-lg": ["Newsreader", "serif"],
+            "display-xl-mobile": ["Newsreader", "serif"],
+            "headline-md": ["Newsreader", "serif"],
+            "body-sm": ["Hanken Grotesk", "sans-serif"]
+          },
+          "fontSize": {
+            "headline-sm": ["1.5rem", { "lineHeight": "2rem", "letterSpacing": "-0.01em", "fontWeight": "500" }],
+            "headline-lg-mobile": ["2rem", { "lineHeight": "2.5rem", "letterSpacing": "-0.015em", "fontWeight": "400" }],
+            "label-md": ["0.75rem", { "lineHeight": "1rem", "letterSpacing": "0.08em", "fontWeight": "600" }],
+            "body-md": ["1rem", { "lineHeight": "1.6rem", "letterSpacing": "0em", "fontWeight": "400" }],
+            "body-lg": ["1.125rem", { "lineHeight": "1.75rem", "letterSpacing": "-0.01em", "fontWeight": "400" }],
+            "label-sm": ["0.6875rem", { "lineHeight": "0.875rem", "letterSpacing": "0.1em", "fontWeight": "500" }],
+            "display-xl": ["4.5rem", { "lineHeight": "5rem", "letterSpacing": "-0.03em", "fontWeight": "400" }],
+            "headline-lg": ["3rem", { "lineHeight": "3.5rem", "letterSpacing": "-0.02em", "fontWeight": "400" }],
+            "display-xl-mobile": ["2.75rem", { "lineHeight": "3.25rem", "letterSpacing": "-0.02em", "fontWeight": "400" }],
+            "headline-md": ["2rem", { "lineHeight": "2.5rem", "letterSpacing": "-0.015em", "fontWeight": "400" }],
+            "body-sm": ["0.875rem", { "lineHeight": "1.4rem", "letterSpacing": "0.01em", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-surface text-primary antialiased selection:bg-secondary-container selection:text-primary">
+<!-- Top Navigation (Shared Component Execution) -->
+<header class="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-outline-variant/40">
+<div class="w-full max-w-[1440px] mx-auto px-8 md:px-16 flex justify-between items-center h-20">
+<!-- Brand Logo Anchor -->
+<a class="font-headline-sm text-headline-sm text-primary tracking-tight hover:opacity-80 transition-opacity" href="#">
+        Avery Stone
+      </a>
+<!-- Navigation & Status Indicator -->
+<nav class="flex items-center gap-8 md:gap-12">
+<div class="hidden sm:flex items-center gap-3 pr-4 border-r border-outline-variant/40">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-label-sm text-label-sm text-secondary tracking-widest uppercase">Available Q2 / Q3</span>
+</div>
+<ul class="flex items-center gap-6 md:gap-8">
+<li>
+<a class="font-label-md text-label-md text-primary border-b border-primary pb-1 transition-all duration-200" href="#work">
+              Work
+            </a>
+</li>
+<li>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors duration-200" href="#about">
+              About
+            </a>
+</li>
+<li>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors duration-200" href="#contact">
+              Contact
+            </a>
+</li>
+</ul>
+<!-- Trailing Primary Action -->
+<a class="hidden md:inline-flex items-center justify-center font-label-md text-label-md px-5 py-2.5 bg-primary text-surface rounded-DEFAULT hover:bg-secondary transition-colors duration-200" href="#contact">
+          Get in Touch
+        </a>
+</nav>
+</div>
+</header>
+<main class="w-full">
+<!-- Hero Section -->
+<section class="max-w-[1440px] mx-auto px-8 md:px-16 pt-24 pb-20 md:pt-36 md:pb-32 border-b border-outline-variant/40">
+<div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+<div class="md:col-span-8 lg:col-span-9">
+<!-- Monograph Micro Tag -->
+<div class="inline-flex items-center gap-2 mb-8">
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest">Portfolio Monograph</span>
+<span class="text-outline-variant">•</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">2023 — 2025</span>
+</div>
+<!-- Hero Headline (Exact requirement) -->
+<h1 class="font-display-xl text-display-xl-mobile md:text-display-xl text-primary font-normal leading-tight tracking-tight mb-8">
+            Independent digital designer
+          </h1>
+<!-- Statement sub-headline with refined line height -->
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl font-light leading-relaxed">
+            Directing brand identities, bespoke digital systems, and art-directed interactive products for architectural studios, independent cultural institutions, and intentional creators worldwide.
+          </p>
+</div>
+<!-- Discipline Ledger Sidebar -->
+<div class="md:col-span-4 lg:col-span-3 pt-4 md:pt-16 border-t md:border-t-0 md:border-l md:border-outline-variant/40 md:pl-8">
+<p class="font-label-sm text-label-sm text-secondary uppercase tracking-widest mb-4">Core Disciplines</p>
+<ul class="space-y-3 font-body-sm text-body-sm text-on-surface-variant">
+<li class="flex items-center justify-between">
+<span>Art &amp; Digital Direction</span>
+<span class="text-outline-variant font-label-sm">01</span>
+</li>
+<li class="flex items-center justify-between">
+<span>Editorial Web Systems</span>
+<span class="text-outline-variant font-label-sm">02</span>
+</li>
+<li class="flex items-center justify-between">
+<span>Design Architecture</span>
+<span class="text-outline-variant font-label-sm">03</span>
+</li>
+<li class="flex items-center justify-between">
+<span>Typography &amp; Form</span>
+<span class="text-outline-variant font-label-sm">04</span>
+</li>
+</ul>
+<div class="mt-10 pt-6 border-t border-outline-variant/30">
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-1">Base &amp; Presence</span>
+<p class="font-body-sm text-body-sm text-on-surface">Montreal, QC <span class="text-outline-variant">/</span> Global Remote</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Selected Projects Section -->
+<section class="max-w-[1440px] mx-auto px-8 md:px-16 py-24 md:py-32" id="work">
+<!-- Section Header -->
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-16 pb-6 border-b border-outline-variant/40">
+<div>
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-2">Index of Works</span>
+<h2 class="font-headline-lg text-headline-lg text-primary tracking-tight">
+            Selected Projects
+          </h2>
+</div>
+<p class="font-label-md text-label-md text-on-surface-variant mt-4 md:mt-0">
+          Showing 03 Curated Case Studies
+        </p>
+</div>
+<!-- Project Cards: Asymmetrical Grid Presentation -->
+<div class="space-y-28 md:space-y-36">
+<!-- Project 1: Komorebi Studio -->
+<article class="grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12 items-center group">
+<div class="md:col-span-7 overflow-hidden bg-surface-container border border-outline-variant/50 rounded-DEFAULT">
+<div class="overflow-hidden aspect-[16/10]">
+<img class="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.02]" data-alt="Minimalist architectural photography of an understated modern timber pavilion in Kyoto surrounded by moss gardens and soft dappled sunlight. The image is rendered in warm creamy beige tones, rich deep evergreen shadows, and refined olive textures, embodying serene editorial restraint and contemplative spatial composition." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBqvxkPjP9sv8VqV7-kLC70mIh0EPhGDtXYaWjuUnl_dlpDOFLSpMp9oOPVKY1PYC9AoAF0xNHapC_uw4_nCPyOYFoNaMMY3qdryLCmqebzil6R0TOaRqZvDK4bi5R-jk-PTE_c-H8GLDwytb31E0iM-4oZvmFDYRDFrKLYUwPKkMXILrMW37NuyTEc9uprnPFZOlCs3f3f3x9xfMHHztDMC-Gf0ObhgRHBumeiYcPPGWc8ImtzpeNKvyoFkvp0TCG23BrySY7PD84B"/>
+</div>
+</div>
+<div class="md:col-span-5 flex flex-col justify-center">
+<div class="flex items-center gap-3 mb-4">
+<span class="font-label-sm text-label-sm text-secondary tracking-widest uppercase">Project 01</span>
+<span class="text-outline-variant">—</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">2024</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-primary group-hover:text-secondary transition-colors duration-200 mb-3">
+              Komorebi Studio
+            </h3>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Brand Identity
+              </span>
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Editorial Web
+              </span>
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Art Direction
+              </span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant mb-6 font-light leading-relaxed">
+              Comprehensive brand identity and tactile digital monograph for an architectural practice nestled in Kyoto, exploring subtle shadows, spatial cadence, and natural materiality through screen interfaces.
+            </p>
+<div>
+<a class="inline-flex items-center gap-2 font-label-md text-label-md text-primary border-b border-primary/50 pb-1 group-hover:border-primary transition-all duration-200" href="#contact">
+<span>View Case Archival</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+</article>
+<!-- Project 2: Aura Soundscapes (Inverted Layout) -->
+<article class="grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12 items-center group">
+<div class="md:col-span-5 order-2 md:order-1 flex flex-col justify-center">
+<div class="flex items-center gap-3 mb-4">
+<span class="font-label-sm text-label-sm text-secondary tracking-widest uppercase">Project 02</span>
+<span class="text-outline-variant">—</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">2024</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-primary group-hover:text-secondary transition-colors duration-200 mb-3">
+              Aura Soundscapes
+            </h3>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Interface Architecture
+              </span>
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Design System
+              </span>
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Audio Synthesis
+              </span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant mb-6 font-light leading-relaxed">
+              Interactive audio workspace and design system engineered for spatial acoustic creators. Features bespoke micro-interactions, responsive waveform modulation, and serene monochromatic dark-light palettes.
+            </p>
+<div>
+<a class="inline-flex items-center gap-2 font-label-md text-label-md text-primary border-b border-primary/50 pb-1 group-hover:border-primary transition-all duration-200" href="#contact">
+<span>View Case Archival</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+<div class="md:col-span-7 order-1 md:order-2 overflow-hidden bg-surface-container border border-outline-variant/50 rounded-DEFAULT">
+<div class="overflow-hidden aspect-[16/10]">
+<img class="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.02]" data-alt="A clean studio display mockup showing an elegant audio software interface with minimalist sound wave visualizers and typography on warm parchment ivory backgrounds. Accented with dark woodland green typography and delicate sage gridlines, the composition conveys high-end acoustic design precision and gallery aesthetics." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDfsFb8LaFRBa4tNgHhZePJH5Vs2ztsnNs3zvLmgTgE9I5LnGvJ1m4A2Gg6GfHd9-iRfQcOZ60pJFli780wXIqjb061U2b4ZpQ57WLcgidzjXovLRVeei9fH5O0WNuWXSqwmHyzzZi8QULoKimCkI56qAAtuafGeloqwqqIfAqvkUgnWjxL4Fbsl-6IrOekrs3kymdx_q9DR5T4C4yXpGvEkeJt2T3YM-kvEuraZi-zYjWPZyZCX8smLDMTThOZn7UcAo2v4WC891Z6"/>
+</div>
+</div>
+</article>
+<!-- Project 3: Materia Archive -->
+<article class="grid grid-cols-1 md:grid-cols-12 gap-8 md:gap-12 items-center group">
+<div class="md:col-span-7 overflow-hidden bg-surface-container border border-outline-variant/50 rounded-DEFAULT">
+<div class="overflow-hidden aspect-[16/10]">
+<img class="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.02]" data-alt="Editorial still life photograph showcasing hand-thrown ceramic vessels and natural unbleached linen fabric within an airy architectural gallery setting. Soft natural morning light casts quiet geometry across neutral cream plaster surfaces with subtle sage accents, presenting artisanal luxury with austere restraint." src="https://lh3.googleusercontent.com/aida-public/AB6AXuARgOdDoTR8F0ZNSL_QdZLfejpRW67EiWVE1qo3HtJbshle2trhXDvMJ9n5Pgdn883Z4ycFF5NjBjSeMzSZeuURvq9pA0bnTrVTLSNjvc0r45WEx1YLKXK8PHuEIsm0BfTZhkBlKr9ntHmcuucued5lXDfp_l2dT6R7nFMm1pCseJJrPLg0IebrqnxO1sunmLJta-ztoMABRgFyxTboqOwiin4YEWvWzXk6dZH0yEfWMXTDPROJl4HYnm2YxYXKePVs27PJA5k6zhx9"/>
+</div>
+</div>
+<div class="md:col-span-5 flex flex-col justify-center">
+<div class="flex items-center gap-3 mb-4">
+<span class="font-label-sm text-label-sm text-secondary tracking-widest uppercase">Project 03</span>
+<span class="text-outline-variant">—</span>
+<span class="font-label-sm text-label-sm text-on-surface-variant">2023</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-primary group-hover:text-secondary transition-colors duration-200 mb-3">
+              Materia Archive
+            </h3>
+<div class="flex flex-wrap gap-2 mb-6">
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Digital Catalog
+              </span>
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Commerce Experience
+              </span>
+<span class="font-label-sm text-label-sm text-secondary bg-surface-container-high px-2.5 py-1 border border-outline-variant/40 rounded-DEFAULT">
+                Creative Direction
+              </span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant mb-6 font-light leading-relaxed">
+              Curated digital catalog and commerce platform championing studio potters and textile weavers. Developed with typographic hierarchy, deliberate white space pacing, and high-fidelity archival imagery.
+            </p>
+<div>
+<a class="inline-flex items-center gap-2 font-label-md text-label-md text-primary border-b border-primary/50 pb-1 group-hover:border-primary transition-all duration-200" href="#contact">
+<span>View Case Archival</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+</article>
+</div>
+</section>
+<!-- About Snapshot Section -->
+<section class="border-t border-b border-outline-variant/40 bg-surface-container-low" id="about">
+<div class="max-w-[1440px] mx-auto px-8 md:px-16 py-24 md:py-32">
+<div class="grid grid-cols-1 md:grid-cols-12 gap-12">
+<!-- Column 1: Section Subhead -->
+<div class="md:col-span-4">
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-4">Philosophy &amp; Practice</span>
+<h2 class="font-headline-md text-headline-md text-primary leading-snug">
+              Typography as architecture. Interfaces as quiet spaces.
+            </h2>
+</div>
+<!-- Column 2: Personal Narrative -->
+<div class="md:col-span-8 space-y-6">
+<p class="font-body-lg text-body-lg text-primary font-normal leading-relaxed">
+              I am Avery Stone, an independent designer exploring the intersection of editorial dignity and modern digital utility. With over a decade of multidisciplinary craft, I partner with studios, founders, and cultural platforms to construct enduring digital ecosystems.
+            </p>
+<p class="font-body-md text-body-md text-on-surface-variant font-light leading-relaxed">
+              Rather than succumbing to cyclical interface trends, my work prioritizes harmonic proportions, meticulous typographic rigor, and generous negative space. Every design choice is informed by an atelier mindset—treating each digital project as a permanent monograph meant to be savored rather than rushed through.
+            </p>
+<!-- Specification Ledger (Atelier Colophon) -->
+<div class="pt-8 border-t border-outline-variant/40 grid grid-cols-2 sm:grid-cols-3 gap-6">
+<div>
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-1">Services</span>
+<p class="font-body-sm text-body-sm text-on-surface">Creative Direction</p>
+<p class="font-body-sm text-body-sm text-on-surface">Design Systems</p>
+<p class="font-body-sm text-body-sm text-on-surface">Editorial Design</p>
+</div>
+<div>
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-1">Selected Clients</span>
+<p class="font-body-sm text-body-sm text-on-surface">Komorebi Architects</p>
+<p class="font-body-sm text-body-sm text-on-surface">Aura Sound Lab</p>
+<p class="font-body-sm text-body-sm text-on-surface">Fondation d'Art</p>
+</div>
+<div>
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-1">Recognition</span>
+<p class="font-body-sm text-body-sm text-on-surface">Type Directors Club</p>
+<p class="font-body-sm text-body-sm text-on-surface">Awwwards Site of Day</p>
+<p class="font-body-sm text-body-sm text-on-surface">Brand New Award</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Contact Section -->
+<section class="max-w-[1440px] mx-auto px-8 md:px-16 py-24 md:py-36" id="contact">
+<div class="grid grid-cols-1 md:grid-cols-12 gap-12 items-start">
+<div class="md:col-span-8">
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-3">Inquiries &amp; Commissions</span>
+<h2 class="font-display-xl text-display-xl-mobile md:text-headline-lg lg:text-display-xl text-primary font-normal tracking-tight mb-8">
+            Let's collaborate
+          </h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant font-light max-w-xl mb-12">
+            Currently accepting commissions for select projects and brand engagements starting late Q2 2025. Tell me about your project, vision, and timeline.
+          </p>
+<!-- Direct Email Anchor -->
+<div class="mb-12">
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest block mb-2">Direct Channel</span>
+<a class="group inline-flex items-center gap-3 font-headline-sm text-headline-sm text-primary hover:text-secondary transition-colors duration-200" href="mailto:hello@averystone.design">
+<span class="border-b border-primary/40 group-hover:border-secondary pb-0.5">hello@averystone.design</span>
+<span class="material-symbols-outlined text-[20px] group-hover:translate-x-1 transition-transform duration-200">north_east</span>
+</a>
+</div>
+<!-- Minimal Network Links -->
+<div class="pt-8 border-t border-outline-variant/40 flex flex-wrap gap-8">
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="https://read.cv" rel="noopener noreferrer" target="_blank">
+              ReadCV
+            </a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="https://twitter.com" rel="noopener noreferrer" target="_blank">
+              Twitter / X
+            </a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="https://are.na" rel="noopener noreferrer" target="_blank">
+              Are.na
+            </a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="https://substack.com" rel="noopener noreferrer" target="_blank">
+              Substack
+            </a>
+</div>
+</div>
+<!-- Working Availability Box -->
+<div class="md:col-span-4 bg-surface-container p-8 border border-outline-variant/50 rounded-DEFAULT">
+<div class="flex items-center gap-2 mb-4">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="font-label-sm text-label-sm text-secondary uppercase tracking-widest">Schedule Status</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-primary mb-3">
+            Q2 &amp; Q3 Availability
+          </h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-6 font-light leading-relaxed">
+            Taking on one comprehensive identity assignment and two digital product system engagements. Initial consultations are held via telephone or private studio visit.
+          </p>
+<div class="text-on-surface-variant text-body-sm space-y-2 pt-4 border-t border-outline-variant/30">
+<div class="flex justify-between">
+<span class="font-label-sm uppercase tracking-wider text-secondary">Timezone</span>
+<span>EDT (UTC-4)</span>
+</div>
+<div class="flex justify-between">
+<span class="font-label-sm uppercase tracking-wider text-secondary">Response</span>
+<span>Within 48 Hours</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer (Shared Component Execution) -->
+<footer class="bg-surface-container-low border-t border-outline-variant/40">
+<div class="w-full max-w-[1440px] mx-auto px-8 md:px-16 py-12 flex flex-col md:flex-row justify-between items-center gap-6">
+<!-- Footer Copyright & Location -->
+<div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 text-center sm:text-left">
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+          © 2025 Avery Stone. All rights reserved.
+        </p>
+<span class="hidden sm:inline text-outline-variant">•</span>
+<p class="font-body-sm text-body-sm text-secondary">
+          Based in Montreal &amp; working globally
+        </p>
+</div>
+<!-- Links (JSON Specified strings) -->
+<ul class="flex items-center gap-6">
+<li>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="mailto:hello@averystone.design">
+            Email
+          </a>
+</li>
+<li>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="#">
+            ReadCV
+          </a>
+</li>
+<li>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="#">
+            Are.na
+          </a>
+</li>
+<li>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary underline underline-offset-4 transition-colors duration-200" href="#">
+            Twitter / X
+          </a>
+</li>
+</ul>
+</div>
+</footer>
+</body></html>

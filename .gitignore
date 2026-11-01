@@ -21,3 +21,6 @@ Bloom_Brew_Repaired/
 *.zip
 node-compile-cache/
 ppt_render_*/
+".env.local" 
+.env.local 
+.env 

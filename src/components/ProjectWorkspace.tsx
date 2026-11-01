@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { workspaceFileEntries } from "../lib/workspace-file-entries";
+import {LiveRuntime,StorageViewer} from './RuntimeStorage';
 import {
   applyProjectEdit,
   downloadProjectZip,
@@ -62,6 +63,7 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
   const [exportSummary, setExportSummary] = useState<ExportSummary | null>(null);
   const [selectedPath, setSelectedPath] = useState("");
   const [copied, setCopied] = useState(false);
+  const [liveUrl,setLiveUrl]=useState('');
 
   const loadWorkspace = useCallback(async () => {
     setLoading(true);
@@ -206,6 +208,7 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
       </div>
 
       {workspaceError && <div className="workspace-error"><strong>Project workspace unavailable.</strong><p>{workspaceError}</p><button type="button" onClick={() => void loadWorkspace()}><RefreshCw /> Retry workspace</button></div>}
+      {workspace?.graphify && <p className="workspace-muted" role="status">{workspace.graphify.status==='ready' ? `Graphify · ${workspace.graphify.nodes} symbols · ${workspace.graphify.edges} connections` : 'Graphify warning'} — {workspace.graphify.message}</p>}
 
       {tab === "files" && (
         <div className="workspace-files" role="tabpanel">
@@ -231,6 +234,7 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
 
       {tab === "preview" && (
         <div className="workspace-preview" role="tabpanel">
+          <LiveRuntime key={`${projectId}:${currentVersionId}`} projectId={projectId} versionId={currentVersionId} validationStatus={workspace?.currentVersion?.validationStatus} checks={workspace?.currentVersion?.validationChecks} onValidated={setWorkspace} onUrl={setLiveUrl}/>
           <div className="preview-toolbar">
             <div className="preview-modes" aria-label="Preview viewport">
               {([
@@ -248,16 +252,16 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
           ) : (
             <div className={`preview-stage is-${mode}`}>
               <iframe
-                key={previewSrc}
+                key={`${previewSrc}:${liveUrl}`}
                 title={`${workspace?.project.name ?? "Generated project"} preview`}
-                src={previewSrc || "about:blank"}
-                sandbox="allow-scripts allow-forms"
+                src={liveUrl || previewSrc || "about:blank"}
+                sandbox={liveUrl?'allow-scripts allow-forms allow-same-origin':'allow-scripts allow-forms'}
                 style={{ width: viewportWidths[mode] }}
               />
             </div>
           )}
           <div className="preview-actions">
-            <button type="button" className="button button-acid" onClick={() => setEditOpen(true)}><PencilLine /> Edit with AI</button>
+            <button type="button" className="button button-acid" disabled={loading} onClick={() => setEditOpen(true)}><PencilLine /> {workspace?.editingMode==='ai'?'Edit with AI':'Edit styling'}</button>
             <button type="button" className="button workspace-button" onClick={() => { setTab("preview"); document.querySelector(".workspace-preview")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}><Expand /> Preview project</button>
           </div>
         </div>
@@ -265,6 +269,7 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
 
       {tab === "database" && (
         <div className="workspace-database" role="tabpanel">
+          <StorageViewer projectId={projectId}/>
           <div className="database-heading"><div><span>Generated application database</span><h3>{workspace?.database.engine ?? "Loading…"}</h3></div><strong>{workspace?.database.tables.length ?? 0} tables</strong></div>
           <div className="database-tables">
             {workspace?.database.tables.map((table) => <article key={table.name}><Database /><div><code>{table.name}</code><p>{table.purpose}</p></div></article>)}
@@ -292,7 +297,8 @@ export default function ProjectWorkspace({ projectId, initialFilePaths, validati
 
       {editOpen && (
         <div className="workspace-edit-panel" aria-label="Edit generated project with AI">
-          <div className="workspace-panel-heading"><div><span>Scoped project change</span><h3>Edit with AI</h3></div><button type="button" aria-label="Close edit panel" onClick={() => setEditOpen(false)}><X /></button></div>
+          <div className="workspace-panel-heading"><div><span>Scoped project change</span><h3>{workspace?.editingMode==='ai'?'Edit with AI':'Edit styling'}</h3></div><button type="button" aria-label="Close edit panel" onClick={() => setEditOpen(false)}><X /></button></div>
+          <p>{workspace?.editingMode==='ai'?'Uses your configured AI providers. Changes must pass source checks and isolated compilation before a new version is saved. Existing data and your previous version are preserved.':'Local styling only. Functional changes require a configured AI provider; unsupported requests are rejected.'}</p>
           <label htmlFor={`edit-prompt-${projectId}`}>What would you like to change?</label>
           <textarea id={`edit-prompt-${projectId}`} value={editPrompt} onChange={(event) => setEditPrompt(event.target.value)} rows={4} placeholder="Make the navbar smaller, add a glass effect, and keep everything else unchanged." />
           {(editBusy || completedPhases.length > 0) && <div className="edit-progress">{editPhases.map((phase) => <span className={completedPhases.includes(phase) ? "is-complete" : editBusy ? "is-running" : ""} key={phase}>{completedPhases.includes(phase) ? <Check /> : <LoaderCircle className={editBusy ? "animate-spin" : ""} />}{phase}</span>)}</div>}

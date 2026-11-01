@@ -1,5 +1,13 @@
 # ForgeWeb
 
+## ForgeWeb source graph (local 3D showcase)
+
+The home page's Graph section shows an actual Graphify code-only snapshot of ForgeWeb's `src`, `server`, `scripts` and selected build configuration—not customer application records. Drag to orbit, use zoom/reset or keyboard arrows, filter communities, search symbols and inspect extracted/inferred relationships. All indexed nodes and connections are rendered; only the text search list is limited to its first 40 matches. A searchable text inspector remains available without WebGL. Automatic rotation is off by default and disabled for reduced-motion preferences.
+
+Stop the dev server, run `npm run graph:refresh` after code changes to regenerate `public/forgeweb-code-graph.json`, then run `npm run dev` again. Stopping Vite first avoids Windows/OneDrive locks on the public snapshot; failed replacement preserves the previous graph. The command uses the installed local `graphify` CLI (reviewed 0.9.97). The generator reads an allowlisted source snapshot, excludes environment files, databases, dependencies, symlinks and Git history, invokes `--code-only`, and publishes only sanitized symbol/relationship metadata. It never invokes an LLM or cloud service. The downloaded original Graphify fork at `https://github.com/Sachin71000/graphify` matched reviewed revision `0a8cd4e1e342235fe53e881fb5d591bf0460071f`.
+
+This is a dated snapshot, not an always-on cloud graph or a proof that every line is correct. CSS does not produce Graphify symbols, display coordinates are generated locally, and inferred edges/confidence scores are not validation results. The public JSON includes source paths and symbol names but no source bodies, API keys or customer records. If hosting ForgeWeb publicly, those code metadata will be visible to visitors; disable/remove the showcase before publishing if those names are confidential. Generated customer-project graphs and their storage are separate and unchanged.
+
 ForgeWeb is an architecture-first, full-stack application generator. A user describes a product, reviews the generated requirements and `ARCHITECTURE.md`, explicitly confirms the plan, and only then does ForgeWeb generate the customer's React frontend and typed backend.
 
 ![ForgeWeb dark animated interface](./forgeweb-preview-desktop.png)
@@ -102,6 +110,8 @@ FORGEWEB_GROQ_MODEL=qwen/qwen3.8-27b
 FORGEWEB_OPENROUTER_MODEL=openai/gpt-5.3-codex
 FORGEWEB_GEMINI_MODEL=gemini-3-flash-preview
 FORGEWEB_GENERATION_MODE=frontend-dual-gemini-backend
+# Optional when Gemini quota is unavailable:
+# FORGEWEB_BACKEND_PROVIDER=groq
 ```
 
 Vite loads `.env.local` before it constructs the embedded development API. Provider keys remain in the Node server and are never returned to the browser, written to generated projects, or included in ZIP exports. The run commands use Node's system CA store for secure provider connections on inspected Windows networks; TLS verification remains enabled.
@@ -110,7 +120,13 @@ The provider pipeline performs schema-constrained architecture planning before c
 
 Fallback keys are optional and do not bypass Google project quotas. OpenRouter requires sufficient credit for its configured model; a valid key does not guarantee generation quota. Do not paste credentials into chat or commit them.
 
+With `FORGEWEB_BACKEND_PROVIDER=groq`, Groq handles architecture/backend as well as its frontend stage. Each source file is requested separately with at most 800 output tokens and a process-shared 61-second request interval for the same key/model. There are no unpaced automatic network retries in this mode. Per-file activity reports waiting/received states; the combined Files view and original export structure are unchanged. Backend source is syntax-checked before composition. Truncated responses fail explicitly. This is a conservative local pacing policy, not a guarantee of provider quota: other applications or processes may share the account's limits. Builds can take 15–20 minutes or longer when queued. Large individual files and architecture JSON may exceed the small output budget and fail rather than silently losing features. Backend-only retries currently rerun generation; no resumable per-file checkpoints are implemented.
+
 ## Current verification and limitations
+
+Backend reliability update (2026-10-29): Gemini now requests five separate plain-source Python files at 2,048 output tokens per file, validates syntax immediately and permits one syntax repair per file. It no longer uses a five-file Base64 bundle. FORGEWEB_BACKEND_PROVIDER=gemini selects enabled Gemini slots followed by Groq; FORGEWEB_GROQ_FILE_MODE=true preserves Groq's existing paced source generation. FORGEWEB_GEMINI_DISABLED_SLOTS=3 skips slot 3 without deleting its key (this machine's slot 3 was confirmed ineligible for the Gemini free tier). Set disabled slots according to your own account, not blindly. Local test count: 117, with type/build checks passing. The new full pipeline has not been live-generated in this update; no end-to-end runtime or speed guarantee is implied.
+
+Local Stitch update (2026-10-28): with FORGEWEB_STITCH_ENABLED=true, the existing confirmation gate now precedes a required Stitch design stage. Failure pauses for retry; it never silently skips Stitch. With the Groq backend override, backend/architecture quota fallback is now Groq -> Gemini 1 -> Gemini 2 -> Gemini 3 (user-confirmed separate projects). Frontend fallback includes all three Gemini credentials after Groq/OpenRouter. This supersedes earlier no-Gemini-backend-fallback notes below. See [Stitch integration](docs/STITCH-INTEGRATION.md) for configuration, security boundaries and test scope.
 
 The latest local regression run passed 79 tests, including provider failure routing, cross-origin rejection, invalid inputs, restart recovery, Python syntax export checks and a curated SQLite booking repair. These tests do not certify arbitrary generated applications as production-ready. Previously reported dependency advisories remain open; see [release audit](docs/PRODUCT-RELEASE-AUDIT.md) and [testing checklist](docs/PROVIDER-SECURITY-TESTING-2026-10-26.md).
 
@@ -259,5 +275,19 @@ Production identity, external model providers, isolated build workers, PostgreSQ
 - [Phase 2 review presentation](./ForgeWeb_Phase_2_Review_Completed.pptx)
 
 ## Security note
+
+### Direct Sol testing
+
+Sol frontend generation is page-by-page: shared API/styles/shell, one source file per approved page, App/navigation, entrypoint, interaction notes and a separate concise static preview. Each validated file is checkpointed and read back before the next request. Retry reuses intact, matching checkpoints and starts at the failed file; changed policy/brief/dependency bodies invalidate the affected checkpoints. A cache write that is unsafe or cannot be verified stops generation instead of silently proceeding. Final whole-project source checks and isolated compilation remain mandatory. The static preview is not proof that a live backend works. This flow has offline recovery tests; it has not yet completed the live café build.
+
+Set `FORGEWEB_GENERATION_MODE=openai` and server-side `OPENAI_API_KEY` in `.env.local` to use `gpt-6.1-sol` through the Responses API. Existing provider settings are preserved but are not paid fallbacks in this mode. The adapter uses Standard service, low reasoning, structured output and no automatic network replay. Whole-application validation failures stop rather than automatically regenerating the application.
+
+The default local test allowance is **$1 cumulative**, not $1 per project or server restart. An explicitly approved extension can be set server-side with `FORGEWEB_OPENAI_TEST_LIMIT_USD` (maximum $2); changing it must not reset the ledger. The TaskNest continuation was approved for exactly $1 additional, giving a cumulative cap of $1.841931. Its SQLite ledger is `<FORGEWEB_DATA_DIR>/openai-test-budget.sqlite3` (default `.forgeweb-data`). Requests reserve an upper-bound cost before sending; uncertain responses retain their reservation. A budget error stops generation before another request that cannot fit. Accounting conservatively prices all input at the documented cache-write rate, so it is not the provider invoice. Do not remove or reset the ledger to resume spending without fresh approval. Provider-side billing protections are still required; this ledger does not cover other programs or services.
+
+### Edit, export and preview safeguards
+
+Configured generation providers now support bounded source patches for AI edits. Changes are saved as a new version only after source validation and isolated React compilation succeed. Invalid, ambiguous or unsupported patches leave the previous version intact. Without a configured editor, the UI explicitly offers styling-only edits. Passing these checks does not prove every requested behavior; review and exercise the resulting application.
+
+Export checks the selected version and its recorded validation evidence against the exact source snapshot placed in the ZIP. Export never auto-upgrades a failed version. Preview cleanup retains failed sessions for retry, reports incomplete cleanup, and preserves application SQLite volumes across restarts.
 
 ForgeWeb is an active prototype. The local control plane demonstrates the workflow and trust boundaries, but generated output must still be reviewed before production deployment. Never commit real provider credentials or private user data.

@@ -1,0 +1,8 @@
+import {execFile} from 'node:child_process';
+function docker(args:string[],timeout=300_000):Promise<void>{return new Promise((resolve,reject)=>execFile('docker',args,{windowsHide:true,timeout,maxBuffer:1024*1024},error=>error?reject(new Error(`Runtime preparation failed: ${error.message.slice(-800)}`)):resolve()));}
+// No generated source, host environment files or credentials enter installers.
+await docker(['version','--format','{{.Server.Version}}']);
+await docker(['run','--rm','--cap-drop','ALL','--security-opt','no-new-privileges','--memory','1g','--cpus','1','--pids-limit','256','--mount','type=volume,src=forgeweb-runtime-node-deps-v1,dst=/deps','node:22-bookworm-slim','npm','install','--prefix','/deps','--ignore-scripts','--no-audit','--no-fund','--fetch-retries','0','--fetch-timeout','20000','react@19.2.8','react-dom@19.2.8','@types/react@19.2.18','@types/react-dom@19.2.4','typescript@7.0.2','vite@8.2.4','gsap@3.15.0','animejs@4.5.0','lucide-react@1.31.0','motion@13.1.0','three@0.185.1','ogl@1.0.11']);
+console.log('Reviewed frontend dependencies prepared.');
+await docker(['run','--rm','--cap-drop','ALL','--security-opt','no-new-privileges','--memory','1g','--cpus','1','--pids-limit','128','--mount','type=volume,src=forgeweb-runtime-python-deps-v1,dst=/deps','python:3.12-slim','pip','install','--only-binary=:all:','--disable-pip-version-check','--no-cache-dir','--target','/deps','fastapi==0.116.1','uvicorn==0.35.0','pydantic[email]==2.11.7','httpx==0.28.1','pytest==8.4.1']);
+console.log('Reviewed Python dependencies prepared. Live projects run without external network access.');

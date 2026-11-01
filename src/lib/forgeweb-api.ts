@@ -51,6 +51,8 @@ export type ProjectVersion = {
 };
 
 export type ProjectWorkspace = {
+  editingMode?:'ai'|'local-style';
+  graphify?: {status:'ready'|'warning';message:string;nodes?:number;edges?:number;sourceHash:string};
   project: ProjectSummary;
   currentVersion?: ProjectVersion;
   versions: ProjectVersion[];
@@ -103,6 +105,16 @@ export type BuildResponse = {
 
 type ApiEnvelope = { build: BuildResponse };
 
+export type RuntimeStatus={status:'stopped'|'starting'|'running'|'failed';hasSession?:boolean;cleanupPending?:boolean;versionId?:string;validationStatus?:string;eligible?:boolean;url?:string;frontendHealthy:boolean;backendHealthy:boolean;message:string};
+export type StorageView={engine:string;location:string;note?:string;message?:string;tables?:Array<{name:string;count:number}>;collections?:Array<{name:string;count:number}>;rows?:unknown[];total?:number};
+export async function getRuntime(projectId:string){return (await request<{runtime:RuntimeStatus}>(`/api/projects/${encodeURIComponent(projectId)}/runtime`)).runtime;}
+export async function runtimeAction(projectId:string,action:'start'|'stop'|'refresh',versionId?:string){
+  if(action==='refresh')return getRuntime(projectId);
+  return (await request<{runtime:RuntimeStatus}>(`/api/projects/${encodeURIComponent(projectId)}/runtime`,{method:action==='start'?'POST':'DELETE',...(action==='start'?{body:JSON.stringify({versionId})}:{})})).runtime;
+}
+export async function validateRuntimeVersion(projectId:string,versionId:string){return (await request<{workspace:ProjectWorkspace}>(`/api/projects/${encodeURIComponent(projectId)}/runtime/validate`,{method:'POST',body:JSON.stringify({versionId})})).workspace;}
+export async function readStorage(projectId?:string,collection='',offset=0){return (await request<{storage:StorageView}>(projectId?`/api/projects/${encodeURIComponent(projectId)}/storage?collection=${encodeURIComponent(collection)}&offset=${offset}`:'/api/storage')).storage;}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -131,6 +143,23 @@ export async function getBuild(buildId: string): Promise<BuildResponse> {
 export async function listProjects(): Promise<ProjectSummary[]> {
   const payload = await request<{ projects: ProjectSummary[] }>("/api/projects");
   return payload.projects;
+}
+
+export type McpServer={id:string;name:string;status:'not_connected'|'verified';checkedAt?:string;tools:Array<{name:string}>;kind:'stitch'|'supabase'|'custom';reference?:{data:string};selected?:boolean};
+export async function listMcpServers():Promise<McpServer[]>{
+  return (await request<{servers:McpServer[]}>('/api/mcp')).servers;
+}
+export async function inspectMcpServer(id:string):Promise<McpServer>{
+  return (await request<{server:McpServer}>(`/api/mcp/${encodeURIComponent(id)}/connect`,{method:'POST'})).server;
+}
+export async function disconnectMcpServer(id:string):Promise<void>{
+  await request(`/api/mcp/${encodeURIComponent(id)}`,{method:'DELETE'});
+}
+export async function readMcpReference(id:string,selection:{projectId?:string;screenId?:string}):Promise<McpServer>{
+  return (await request<{server:McpServer}>(`/api/mcp/${encodeURIComponent(id)}/read`,{method:'POST',body:JSON.stringify(selection)})).server;
+}
+export async function selectMcpReference(id:string,enabled:boolean):Promise<McpServer[]>{
+  return (await request<{servers:McpServer[]}>(`/api/mcp/${encodeURIComponent(id)}/select`,{method:'POST',body:JSON.stringify({enabled})})).servers;
 }
 
 export async function deleteProject(projectId: string): Promise<{ id: string; name: string }> {
@@ -191,3 +220,11 @@ export async function waitForBuild(
 }
 
 export class BuildWaitTimeoutError extends Error {}
+
+export async function uploadStitchZip(buildId: string, file: File): Promise<BuildResponse> {
+  if (file.size > 8 * 1024 * 1024) throw new Error("Stitch ZIP must be smaller than 8 MiB.");
+  const response = await fetch(`/api/builds/${encodeURIComponent(buildId)}/stitch-zip`, { method: "POST", headers: { "Content-Type": "application/zip" }, body: file });
+  const payload = await response.json() as { build?: BuildResponse; error?: { message?: string } };
+  if (!response.ok || !payload.build) throw new Error(payload.error?.message ?? "Stitch ZIP import failed.");
+  return payload.build;
+}

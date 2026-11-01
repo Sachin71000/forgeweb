@@ -1,0 +1,111 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand*\HyPL@Entry[1]{}
+\citation{chen2021codex}
+\citation{hendrycks2021apps}
+\citation{li2022alphacode}
+\HyPL@Entry{0<</S/D>>}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {II}Problem Definition and Objectives}{1}{section.2}\protected@file@percent }
+\newlabel{eq:approval}{{1}{1}{Problem Definition and Objectives}{equation.2.1}{}}
+\citation{nijkamp2022codegen}
+\citation{fried2023incoder}
+\citation{chen2022codet}
+\citation{liu2023evalplus}
+\citation{jain2024livecodebench}
+\citation{zhuo2024bigcodebench}
+\citation{jimenez2024swebench}
+\citation{yang2024sweagent}
+\citation{qian2024chatdev}
+\citation{hong2023metagpt}
+\citation{wu2023autogen}
+\citation{xia2024agentless}
+\citation{yao2023react}
+\citation{shinn2023reflexion}
+\citation{madaan2023selfrefine}
+\citation{wei2022cot,wang2023plansolve}
+\citation{lewis2020rag}
+\citation{zhang2023repocoder}
+\citation{si2025design2code}
+\citation{pearce2022security}
+\citation{perry2023security}
+\@writefile{toc}{\contentsline {section}{\numberline {III}Literature Review}{2}{section.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Code Synthesis and Evaluation}{2}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Software Engineering Agents}{2}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Planning, Feedback, and Context}{2}{subsection.3.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Research Themes and Their Role in ForgeWeb}}{2}{table.1}\protected@file@percent }
+\newlabel{tab:related}{{I}{2}{Research Themes and Their Role in ForgeWeb}{table.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-D}}Visual Fidelity and Security}{2}{subsection.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {IV}System Architecture}{2}{section.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-A}}User Layer}{2}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-B}}Control Plane and Persistence}{3}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-C}}Provider and Generation Layer}{3}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {IV-D}}Project Workspace and Traceability}{3}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}Methodology}{3}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}Prompt Interpretation and Architecture}{3}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}Contract-Guided Artifact Generation}{3}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-C}}Engineering Roles and Scope Control}{3}{subsection.5.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Implemented ForgeWeb architecture. The user layer communicates with a Node.js control plane. Provider calls occur on the server. Source files, preview HTML, graph records, and versions are stored as project artifacts. The exported customer application has its own runtime. Dashed arrows indicate optional provider paths.}}{4}{figure.1}\protected@file@percent }
+\newlabel{fig:architecture}{{1}{4}{Implemented ForgeWeb architecture. The user layer communicates with a Node.js control plane. Provider calls occur on the server. Source files, preview HTML, graph records, and versions are stored as project artifacts. The exported customer application has its own runtime. Dashed arrows indicate optional provider paths}{figure.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-D}}Validation and Graph Construction}{4}{subsection.5.4}\protected@file@percent }
+\newlabel{eq:coverage}{{2}{4}{Validation and Graph Construction}{equation.5.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Implementation and Reproducibility}{4}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Experimental Setup, Results, and Analysis}{4}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-A}}Evaluation Questions}{4}{subsection.7.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Prompt-to-project data flow. The user can revise the proposal before confirmation. Generation proceeds through model routing or a recorded local fallback, then through policy and structural checks. Failed checks prevent acceptance of the candidate.}}{5}{figure.2}\protected@file@percent }
+\newlabel{fig:flow}{{2}{5}{Prompt-to-project data flow. The user can revise the proposal before confirmation. Generation proceeds through model routing or a recorded local fallback, then through policy and structural checks. Failed checks prevent acceptance of the candidate}{figure.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Reproduced Local Verification Results}}{5}{table.2}\protected@file@percent }
+\newlabel{tab:results}{{II}{5}{Reproduced Local Verification Results}{table.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Structure of a generated project and its runtime boundary. The shared contract guides both source sets. The stored HTML preview is separate from the React application and Python service that a developer runs after export. Database infrastructure must be configured for that application.}}{5}{figure.3}\protected@file@percent }
+\newlabel{fig:structure}{{3}{5}{Structure of a generated project and its runtime boundary. The shared contract guides both source sets. The stored HTML preview is separate from the React application and Python service that a developer runs after export. Database infrastructure must be configured for that application}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-B}}What the Checks Establish}{5}{subsection.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-C}}Interpretation}{5}{subsection.7.3}\protected@file@percent }
+\bibstyle{IEEEtran}
+\bibdata{references}
+\bibcite{chen2021codex}{1}
+\bibcite{hendrycks2021apps}{2}
+\bibcite{li2022alphacode}{3}
+\bibcite{nijkamp2022codegen}{4}
+\bibcite{fried2023incoder}{5}
+\bibcite{chen2022codet}{6}
+\bibcite{liu2023evalplus}{7}
+\bibcite{jain2024livecodebench}{8}
+\bibcite{zhuo2024bigcodebench}{9}
+\bibcite{jimenez2024swebench}{10}
+\bibcite{yang2024sweagent}{11}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VII-D}}Planned Comparative Evaluation}{6}{subsection.7.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VIII}Limitations and Future Work}{6}{section.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VIII-A}}Model and Design Limitations}{6}{subsection.8.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VIII-B}}Execution and Security Limitations}{6}{subsection.8.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {VIII-C}}Scale and Traceability Limitations}{6}{subsection.8.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {IX}Conclusion}{6}{section.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{6}{section*.1}\protected@file@percent }
+\bibcite{qian2024chatdev}{12}
+\bibcite{hong2023metagpt}{13}
+\bibcite{wu2023autogen}{14}
+\bibcite{xia2024agentless}{15}
+\bibcite{yao2023react}{16}
+\bibcite{shinn2023reflexion}{17}
+\bibcite{madaan2023selfrefine}{18}
+\bibcite{wei2022cot}{19}
+\bibcite{wang2023plansolve}{20}
+\bibcite{lewis2020rag}{21}
+\bibcite{zhang2023repocoder}{22}
+\bibcite{si2025design2code}{23}
+\bibcite{pearce2022security}{24}
+\bibcite{perry2023security}{25}
+\gdef \@abspage@last{7}

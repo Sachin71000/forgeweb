@@ -1,5 +1,6 @@
 import { Check, FolderOpen, History, LoaderCircle, Menu, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import McpConnections from './McpConnections';
 import { deleteProject, getBuild, getProjectWorkspace, listProjects, type BuildResponse, type ProjectSummary } from "../lib/forgeweb-api";
 
 type ProjectLibraryProps = {
@@ -16,6 +17,27 @@ export default function ProjectLibrary({ activeProjectId, refreshToken, onOpen, 
   const [opening, setOpening] = useState("");
   const [deleting, setDeleting] = useState("");
   const [error, setError] = useState("");
+  const triggerRef=useRef<HTMLButtonElement>(null);
+  const panelRef=useRef<HTMLElement>(null);
+
+  useEffect(()=>{
+    if(!open)return;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow='hidden';
+    panelRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const keyboard=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){event.preventDefault();setOpen(false);return;}
+      if(event.key!=='Tab')return;
+      const controls=[...panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]')??[]].filter(element=>element.getClientRects().length>0);
+      const first=controls[0],last=controls.at(-1);
+      if(!first){event.preventDefault();panelRef.current?.focus();return;}
+      if(!panelRef.current?.contains(document.activeElement)||(event.shiftKey&&document.activeElement===first)||(!event.shiftKey&&document.activeElement===last)){
+        event.preventDefault();(event.shiftKey?last:first)?.focus();
+      }
+    };
+    document.addEventListener('keydown',keyboard);
+    return ()=>{document.removeEventListener('keydown',keyboard);document.body.style.overflow=previousOverflow;triggerRef.current?.focus();};
+  },[open]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,15 +86,16 @@ export default function ProjectLibrary({ activeProjectId, refreshToken, onOpen, 
 
   return (
     <div className="project-library">
-      <button type="button" className="project-library-trigger" onClick={() => setOpen(true)} aria-label="My Projects" aria-expanded={open} aria-controls="project-history-drawer">
+      <button ref={triggerRef} type="button" className="project-library-trigger" onClick={() => setOpen(true)} aria-label="My Projects" aria-expanded={open} aria-controls="project-history-drawer">
         <Menu /><span className="project-library-trigger-label">My Projects</span>{projects.length > 0 && <b>{projects.length}</b>}
       </button>
       {open && (
         <>
           <button type="button" className="project-library-scrim" aria-label="Close project history" onClick={() => setOpen(false)} />
-          <aside id="project-history-drawer" className="project-library-panel" aria-label="My Projects">
+          <aside ref={panelRef} id="project-history-drawer" className="project-library-panel" role="dialog" aria-modal="true" tabIndex={-1} aria-label="My Projects">
             <div className="project-drawer-brand"><div><img src="/forgeweb-logo-gold.png" alt="" /><strong>ForgeWeb</strong></div><button type="button" aria-label="Close projects" onClick={() => setOpen(false)}><X /></button></div>
             <button type="button" className="project-new-chat" onClick={() => { onNewChat(); setOpen(false); }}><Plus /> New chat</button>
+            <McpConnections />
             <div className="project-drawer-heading"><span><History /> History</span><button type="button" aria-label="Refresh projects" onClick={() => void load()}><RefreshCw className={loading ? "animate-spin" : ""} /></button></div>
             {error && <div className="workspace-error"><strong>Project storage unavailable.</strong><p>{error}</p></div>}
             <div className="project-library-list">
