@@ -1,0 +1,94 @@
+[
+  {
+    "title": "CONTENTS",
+    "body": "01  Overview: abstract, introduction and motivation\n02  Problem statement and objectives\n03  Methodology and system diagrams\n04  Algorithms and experimental setup\n05  Demonstration and result analysis\n06  SDG alignment and complex engineering problem\n07  Project management, finance and future work\n08  References and publication status"
+  },
+  {
+    "title": "ABSTRACT",
+    "body": "ForgeWeb helps users turn a plain-language idea into a full-stack web application. It prepares requirements and an architecture file for approval before generating code.\nA schema-first pipeline connects React interfaces, FastAPI models and SQLite storage. Saved checkpoints protect completed work when generation stops.\nLocal checks compile the frontend and test API behavior and persistence. The aim is to make generation more dependable while clearly reporting what has and has not been verified."
+  },
+  {
+    "title": "INTRODUCTION",
+    "body": "• Full-stack development connects the interface, server logic and database.\n• AI can produce code quickly, but separate files may disagree about routes, fields or validation.\n• ForgeWeb provides an approval-led workflow for planning, generation, preview and inspection.\n• The current reliability target is React, Python FastAPI and SQLite.\n• The platform keeps project history and supports bounded, checkpoint-based recovery."
+  },
+  {
+    "title": "MOTIVATION",
+    "body": "• Students and small teams often spend substantial effort setting up repeated application foundations.\n• A generated page is useful only when its actions connect to working server behavior.\n• Failures should preserve progress rather than force users to restart.\n• Users need clear evidence of real saves, valid responses and durable data.\n• ForgeWeb combines faster prototyping with visible engineering checks."
+  },
+  {
+    "title": "PROBLEM STATEMENT",
+    "body": "Users need a practical way to build web applications from natural-language requirements without manually coordinating every interface, API and database detail. However, generated components can use inconsistent field names, incompatible category values or missing storage dependencies. A page may compile and still fail when a user submits a form.\nThe problem is therefore to create an approval-led generation workflow that preserves the user’s requirements, maintains a consistent full-stack contract, saves partial progress and verifies observable behavior before presenting the application as working."
+  },
+  {
+    "title": "OBJECTIVES OF THE WORK",
+    "body": "• Create a clear architecture file from the user’s requirements.\n• Generate source only after the proposed plan is approved.\n• Derive shared types and server models from one schema.\n• Connect React actions to FastAPI routes and persistent SQLite data.\n• Preserve checkpoints and support controlled recovery.\n• Test compilation, API workflows, validation and persistence.\n• Report failures and unverified behavior honestly."
+  },
+  {
+    "title": "METHODOLOGY",
+    "body": "1. Understand the prompt and prepare requirements and architecture.\n2. Ask the user to approve or revise the proposed plan.\n3. Freeze a machine-readable schema for routes and data models.\n4. Generate shared bindings, frontend pages and backend services.\n5. Save accepted files as durable checkpoints.\n6. Run isolated compilation, API and persistence checks.\n7. Show source, preview, version history and verification evidence."
+  },
+  {
+    "title": "SYSTEM ARCHITECTURE",
+    "body": ""
+  },
+  {
+    "title": "DATA FLOW DIAGRAM — LEVEL 0",
+    "body": ""
+  },
+  {
+    "title": "DATA FLOW DIAGRAM — LEVEL 1",
+    "body": ""
+  },
+  {
+    "title": "SEQUENCE DIAGRAM — GENERATION",
+    "body": ""
+  },
+  {
+    "title": "TRANSACTION DIAGRAM — SAVING DATA",
+    "body": ""
+  },
+  {
+    "title": "ALGORITHMS USED",
+    "body": "• Schema validation checks types, references and routes before generation.\n• Deterministic bindings create matching TypeScript and Python models.\n• Checkpoint recovery reuses accepted files after an interruption.\n• Workflow verification checks responses and persistent data.\n• Graph retrieval selects relevant code for scoped reviews and edits.\n• Budget checks stop requests that cannot fit the approved allowance."
+  },
+  {
+    "title": "EXPERIMENTAL SETUP",
+    "body": "Software\nReact and TypeScript; Python FastAPI; SQLite; Docker; Playwright; local Graphify.\nHardware\nIntel Core i7-11800H, 16 GB RAM and NVIDIA RTX 3050 Ti laptop GPU.\nTest environment\nIsolated containers, disposable test databases and synthetic records. External generation uses server-side credentials; secrets are excluded from source and exports."
+  },
+  {
+    "title": "DEMONSTRATION — GENERATED APPLICATION",
+    "body": ""
+  },
+  {
+    "title": "RESULT ANALYSIS — TEST CASES",
+    "body": "• Contract tests reject mismatched enums, routes and request models.\n• CRUD tests check real create, read, update and delete behavior.\n• Input tests reject invalid values and undeclared fields.\n• Transaction tests check rollback and concurrent writes.\n• Restart tests distinguish SQLite persistence from in-memory state.\n• Recovery and export tests protect accepted work and reject invalid versions.\nEvidence: local suites and isolated fixtures passed; fresh paid model generation remains unverified."
+  },
+  {
+    "title": "RESULT ANALYSIS — OBSERVATIONS",
+    "body": "What improved\nShared bindings reduce inconsistent data definitions. Checkpoints retain progress. Business-route tests catch failures hidden by a healthy startup.\nWhat the evidence does not prove\nPassing local fixtures does not guarantee every future prompt will succeed. API workflow checks do not replace browser tests for every interface.\nCurrent boundary\nThe supported schema subset and direct Sol path are implemented; further live acceptance requires a controlled, approved run."
+  },
+  {
+    "title": "SDG ALIGNMENT",
+    "body": "SDG 4 — Quality Education\nSupports learning by making architecture, code and test evidence visible to students.\nSDG 9 — Industry, Innovation and Infrastructure\nExplores reusable application foundations and more dependable software prototyping.\nAssessment boundary\nThese are qualitative project links, not measured social-impact claims. Department-specific SDG scoring metrics were not supplied and must be confirmed before submission."
+  },
+  {
+    "title": "COMPLEX ENGINEERING PROBLEM",
+    "body": "• Reconcile an open-ended prompt with a precise, executable contract.\n• Coordinate independently generated UI, API and persistence code.\n• Balance output limits, response time, test coverage and API cost.\n• Preserve state when models, storage or runtimes fail.\n• Isolate generated code while still providing a usable live preview.\n• Distinguish convincing output from evidence of correct behavior."
+  },
+  {
+    "title": "PROJECT MANAGEMENT AND FINANCE",
+    "body": "Completed phases\nRequirement-led planning; generation and project history; SQLite persistence; checkpoint recovery; schema bindings; local verification gates.\nCurrent focus\nControlled acceptance testing of fresh generation and broader UI scenarios.\nResources and cost control\nTeam development effort and existing laptop hardware. Hosted model use follows an explicit test allowance; local guards stop requests that cannot fit. No commercial deployment budget is claimed."
+  },
+  {
+    "title": "CONCLUSION AND FUTURE WORK",
+    "body": "ForgeWeb connects planning, code generation and observable verification in one workflow. The key lesson is that a good-looking interface and valid source are not enough: the complete data flow must work.\nNext steps\nRun bounded fresh-generation acceptance tests; broaden independent browser scenarios; improve supported schema coverage and performance measurements. Additional stacks remain future work.\nA universal or 100% generation-success claim is not supported by current evidence."
+  },
+  {
+    "title": "REFERENCES — IEEE STYLE",
+    "body": "[1] M. Chen et al., “Evaluating Large Language Models Trained on Code,” arXiv:2107.03374, 2021.\n[2] Y. Li et al., “Competition-level code generation with AlphaCode,” Science, vol. 378, no. 6624, pp. 1092–1097, 2022.\n[3] B. Rozière et al., “Code Llama: Open Foundation Models for Code,” arXiv:2308.12950, 2023.\n[4] J. Liu et al., “Is Your Code Generated by ChatGPT Really Correct? Rigorous Evaluation of Large Language Models for Code Generation,” NeurIPS, 2023."
+  },
+  {
+    "title": "PUBLICATIONS AND REPORT STATUS",
+    "body": "• A project research-paper draft and LaTeX source have been prepared in earlier project work.\n• No journal acceptance, conference acceptance or indexing status has been verified.\n• Publication venue and submission details must be confirmed by the team.\n• Replace all pending academic details before final submission.\n• Presentation wording is original and project-specific; no plagiarism-detector score is claimed."
+  }
+]
